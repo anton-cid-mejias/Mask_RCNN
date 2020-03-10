@@ -417,7 +417,7 @@ def detect(model, image_dir):
             if image.shape[-1] == 4:
                 image = image[..., :3]
             # Detect objects
-            results = model.detect([image], verbose=1)[0]
+            results = model.detect([image], verbose=1)
             r = results[0]
             save_image(image, file, r['rois'], r['masks'], r['class_ids'], r['scores'],
                        dataset.class_names, save_dir="results/val", mode=0)
