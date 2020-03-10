@@ -407,7 +407,7 @@ def detect(model, image_dir):
 
     for file in files:
         if file.endswith((".png", ".tiff", ".jpg", ".jpeg", ".tif", ".TIF")):
-            print("Predicting %s..." % (file))
+            print("Predicting \"%s\"..." % (file))
             # Load image
             image = skimage.io.imread(file)
             # If grayscale. Convert to RGB for consistency.
@@ -419,7 +419,7 @@ def detect(model, image_dir):
             # Detect objects
             results = model.detect([image], verbose=1)
             r = results[0]
-            save_image(image, file, r['rois'], r['masks'], r['class_ids'], r['scores'],
+            save_image(image, file.split("/")[-1:][0].split["."][0], r['rois'], r['masks'], r['class_ids'], r['scores'],
                        dataset.class_names, save_dir="results/val", mode=0)
 
 ############################################################
@@ -485,6 +485,7 @@ if __name__ == '__main__':
             # You can increase this during training to generate more propsals.
             RPN_NMS_THRESHOLD = 0.7
             DETECTION_MIN_CONFIDENCE = 0.9
+            NUM_CLASSES = 4#1 + 1
 
         config = InferenceConfig()
     config.display()
