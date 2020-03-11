@@ -419,7 +419,9 @@ def detect(model, image_dir):
             # Detect objects
             results = model.detect([image], verbose=1)
             r = results[0]
-            save_image(image, file.split("/")[-1:][0].split["."][0], r['rois'], r['masks'], r['class_ids'], r['scores'],
+            filename = file
+            print(filename)
+            save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
                        dataset.class_names, save_dir="results/val", mode=0)
 
 ############################################################
