@@ -589,7 +589,8 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
             draw.rectangle((x1, y1, x2, y2), outline=color)
 
         # Label
-        font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
+        #font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
+        font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
         draw.text((x1, y1), "%s %f" % (label, score), color, font)
 
     masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")

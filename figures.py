@@ -405,6 +405,7 @@ def detect(model, image_dir):
     dataset.load_figures(args.validation_dataset, "val_annotations.json")
     dataset.prepare()
 
+    i = 0
     for file in files:
         if file.endswith((".png", ".tiff", ".jpg", ".jpeg", ".tif", ".TIF")):
             print("Predicting \"%s\"..." % (file))
@@ -419,10 +420,10 @@ def detect(model, image_dir):
             # Detect objects
             results = model.detect([image], verbose=1)
             r = results[0]
-            filename = file.split("/")[-1].split(".")[0]
-            print(filename)
+            filename = "pred_%i" % i
             save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
                        dataset.class_names, save_dir="../results/predictions", mode=0)
+            i += 1
 
 ############################################################
 #  Training
