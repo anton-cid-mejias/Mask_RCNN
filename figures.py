@@ -109,26 +109,26 @@ class FiguresConfig(Config):
     DETECTION_MIN_CONFIDENCE = 0.9
 
     # Maximum number of ground truth instances to use in one image
-    MAX_GT_INSTANCES = 100
+    MAX_GT_INSTANCES = 200
 
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 100
 
-    LEARNING_RATE = 0.0001
+    LEARNING_RATE = 0.0005
 
     # Number of ROIs per image to feed to classifier/mask heads
     # The Mask RCNN paper uses 512 but often the RPN doesn't generate
     # enough positive proposals to fill this and keep a positive:negative
     # ratio of 1:3. You can increase the number of proposals by adjusting
     # the RPN NMS threshold.
-    TRAIN_ROIS_PER_IMAGE = 128
+    TRAIN_ROIS_PER_IMAGE = 256
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
     USE_MINI_MASK = True
     MINI_MASK_SHAPE = (56, 56)
 
-    MEAN_PIXEL = np.array([33.62, 33.62, 33.62])
+    #MEAN_PIXEL = np.array([12.57, 12.57, 12.57])
 
 
 ############################################################
@@ -371,7 +371,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=50,
+                epochs=100,
                 augmentation=augmentation,
                 layers='heads')
 
@@ -388,7 +388,7 @@ def evaluate(model):
         print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
                                                dataset.image_reference(image_id)))
 
-        filename = info['path'].split("/")[2].split('.')[0]
+        filename = info["source"] + "_" + str(image_id)
         # Run object detection
         results = model.detect([image], verbose=1)
         r = results[0]
@@ -488,7 +488,7 @@ if __name__ == '__main__':
             # You can increase this during training to generate more propsals.
             RPN_NMS_THRESHOLD = 0.7
             DETECTION_MIN_CONFIDENCE = 0.9
-            NUM_CLASSES = 4#1 + 1
+            NUM_CLASSES = 1 + 1
 
         config = InferenceConfig()
     config.display()
