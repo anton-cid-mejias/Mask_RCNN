@@ -57,6 +57,7 @@ sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
 from mrcnn import model as modellib, utils
 from mrcnn.visualize import save_image
+from mrcnn.annotator import AnnotationsGenerator
 
 # Path to trained weights file
 COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "../COCO_weights/mask_rcnn_coco.h5")
@@ -382,18 +383,26 @@ def evaluate(model):
     dataset.load_figures(args.validation_dataset, "val_annotations.json")
     dataset.prepare()
 
+    gen = AnnotationsGenerator("Dataset validation results")
+    gen.add_categories(dataset.class_names)
+
     for image_id in dataset.image_ids:
         image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(dataset, config, image_id, use_mini_mask=False)
         info = dataset.image_info[image_id]
         print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
                                                dataset.image_reference(image_id)))
-
-        filename = info["source"] + "_" + str(image_id)
         # Run object detection
         results = model.detect([image], verbose=1)
         r = results[0]
+        # Save image as pred_x.png and save annotations in COCO format
+        gen.add_image(info['path'], image.shape[0], image.shape[1])
+        image_id = gen.get_image_id(info['path'])
+        filename = info["source"] + "_" + str(image_id)
         save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                  dataset.class_names, save_dir="../results/val", mode=0)
+                  dataset.class_names, gen, image_id, save_dir="../results/val", mode=0)
+    # Save the results in an annotation file following the COCO dataset structure
+    gen.save_json("../results/val" + "/evaluation_annotations.json", pretty=True)
+
 
 def detect(model, image_dir):
 
@@ -404,6 +413,9 @@ def detect(model, image_dir):
     dataset = FiguresDataset()
     dataset.load_figures(args.validation_dataset, "val_annotations.json")
     dataset.prepare()
+
+    gen = AnnotationsGenerator("Dataset detection results")
+    gen.add_categories(dataset.class_names)
 
     i = 0
     for file in files:
@@ -420,10 +432,17 @@ def detect(model, image_dir):
             # Detect objects
             results = model.detect([image], verbose=1)
             r = results[0]
+            # Save image as pred_x.png and save annotations in COCO format
+            gen.add_image(file, image.shape[0], image.shape[1])
+            image_id = gen.get_image_id(file)
             filename = "pred_%i" % i
+            # Save image as pred_x.png
             save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                       dataset.class_names, save_dir="../results/predictions", mode=0)
+                       dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=0)
+            # Save the results in an annotation file following the COCO dataset structure
             i += 1
+    # Save the results in an annotation file following the COCO dataset structure
+    gen.save_json("../results/predictions" + "/prediction_annotations.json", pretty=True)
 
 ############################################################
 #  Training
@@ -485,10 +504,10 @@ if __name__ == '__main__':
             GPU_COUNT = 1
             IMAGES_PER_GPU = 1
             # Non-max suppression threshold to filter RPN proposals.
-            # You can increase this during training to generate more propsals.
+            # You can increase this during training to generate more proposals.
             RPN_NMS_THRESHOLD = 0.7
             DETECTION_MIN_CONFIDENCE = 0.9
-            NUM_CLASSES = 1 + 1
+            NUM_CLASSES = 4#1 + 1
 
         config = InferenceConfig()
     config.display()

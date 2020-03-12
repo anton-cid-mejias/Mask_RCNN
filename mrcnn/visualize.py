@@ -81,6 +81,14 @@ def apply_mask(image, mask, color, alpha=0.5):
                                   image[:, :, c])
     return image
 
+def apply_compressed_mask(image, mask, bbox, color, alpha=0.5):
+    y1, x1, y2, x2 = bbox
+    for c in range(3):
+        image[y1:y2, x1:x2, c] = np.where(mask == 1,
+                                       image[y1:y2, x1:x2, c] *
+                                       (1 - alpha) + alpha * color[c] * 255,
+                                       image[y1:y2, x1:x2, c])
+    return image
 
 def display_instances(image, boxes, masks, class_ids, class_names,
                       scores=None, title="",
@@ -501,8 +509,8 @@ def display_weight_stats(model):
             ])
     display_table(table)
 
-def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, filter_classs_names=None,
-               scores_thresh=0.1, save_dir=None, mode=0):
+def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, generator, image_id,
+               filter_classs_names=None, save_dir=None, mode=0):
     """
         image: image array
         image_name: image name
@@ -531,18 +539,23 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
     useful_mask_indices = []
 
     N = boxes.shape[0]
+
+    if mode != 3:
+        masked_image = image.astype(np.uint8).copy()
+    else:
+        masked_image = np.zeros(image.shape).astype(np.uint8)
+
     if not N:
         print("\n*** No instances in image %s to draw *** \n" % (image_name))
+        masked_image = Image.fromarray(masked_image)
+        masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
         return
     else:
-        assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
+        assert boxes.shape[0] == len(masks) == class_ids.shape[0]
 
     for i in range(N):
         # filter
         class_id = class_ids[i]
-        score = scores[i] if scores is not None else None
-        if score is None or score < scores_thresh:
-            continue
 
         label = class_names[class_id]
         if (filter_classs_names is not None) and (label not in filter_classs_names):
@@ -556,18 +569,15 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
 
     if len(useful_mask_indices) == 0:
         print("\n*** No instances in image %s to draw *** \n" % (image_name))
+        masked_image = Image.fromarray(masked_image)
+        masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
         return
 
     colors = random_colors(len(useful_mask_indices))
 
-    if mode != 3:
-        masked_image = image.astype(np.uint8).copy()
-    else:
-        masked_image = np.zeros(image.shape).astype(np.uint8)
-
     if mode != 1:
         for index, value in enumerate(useful_mask_indices):
-            masked_image = apply_mask(masked_image, masks[:, :, value], colors[index])
+            masked_image = apply_compressed_mask(masked_image, masks[value], boxes[index], colors[index])
 
     masked_image = Image.fromarray(masked_image)
 
@@ -587,10 +597,15 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
         if mode != 2:
             color = tuple(colors[index])
             draw.rectangle((x1, y1, x2, y2), outline=color)
-
         # Label
         #font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
         font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
         draw.text((x1, y1), "%s %f" % (label, score), color, font)
+        a = list(boxes[value].astype(int))
+        # Add mask annotation
+        b1, b2, b3, b4 = boxes[value]
+        bbox = [int(b1), int(b2), int(b3), int(b4)]
+        generator.add_raw_annotation(image_id, label, bbox, masks[value])
+
 
     masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
