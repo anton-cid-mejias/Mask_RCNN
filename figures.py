@@ -399,7 +399,7 @@ def evaluate(model):
         image_id = gen.get_image_id(info['path'])
         filename = info["source"] + "_" + str(image_id)
         save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                  dataset.class_names, gen, image_id, save_dir="../results/val", mode=0)
+                  dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
     # Save the results in an annotation file following the COCO dataset structure
     gen.save_json("../results/val" + "/evaluation_annotations.json", pretty=True)
 
@@ -438,7 +438,7 @@ def detect(model, image_dir):
             filename = "pred_%i" % i
             # Save image as pred_x.png
             save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                       dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=0)
+                       dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=4)
             # Save the results in an annotation file following the COCO dataset structure
             i += 1
     # Save the results in an annotation file following the COCO dataset structure
@@ -507,7 +507,7 @@ if __name__ == '__main__':
             # You can increase this during training to generate more proposals.
             RPN_NMS_THRESHOLD = 0.7
             DETECTION_MIN_CONFIDENCE = 0.9
-            NUM_CLASSES = 4#1 + 1
+            NUM_CLASSES = 1 + 1
 
         config = InferenceConfig()
     config.display()

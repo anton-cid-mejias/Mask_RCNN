@@ -3,9 +3,10 @@ from datetime import date
 from skimage import measure
 from shapely.geometry import Polygon, MultiPolygon
 import numpy as np
+import matplotlib.pyplot as plt
 
 # https://www.immersivelimit.com/tutorials/create-coco-annotations-from-scratch
-def segmentate_figure(mask):
+def segmentate_figure(mask, width, height):
     # Find contours (boundary lines) around each sub-mask
     # Note: there could be multiple contours if the object
     # is partially occluded. (E.g. an elephant behind a tree)
@@ -16,18 +17,19 @@ def segmentate_figure(mask):
     segmentations = []
     polygons = []
     for contour in contours:
+        # Flip from (row, col) representation to (x, y),
+        # subtract the padding pixel
+        # and situate the points in their correspondent position
+        for i in range(len(contour)):
+            row, col = contour[i]
+            contour[i] = (col + width - 1, row + height - 1)
+
         # Make a polygon and simplify it
         poly = Polygon(contour)
         poly = poly.simplify(1.0, preserve_topology=False)
 
-        for i in range(len(contour)):
-            row, col = contour[i]
-            contour[i] = (col - 1, row - 1)
-
-        #if poly.exterior is None:
-        #    continue
-
         polygons.append(poly)
+
         if poly.exterior is not None:
             segmentation = np.array(poly.exterior.coords).ravel().tolist()
             segmentations.append(segmentation)
@@ -114,7 +116,8 @@ class AnnotationsGenerator:
     def add_raw_annotation(self, image_id, category, bbox, mask):
         new_id = len(self.annotations) + 1
         category_id = self.categories_dict[category]
-        segmentation, area = segmentate_figure(mask)
+        width, height = bbox[:-2]
+        segmentation, area = segmentate_figure(mask, width, height)
 
         if category_id == None:
             raise Exception("Category of annotation not matching the categories of the annotator")

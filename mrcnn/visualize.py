@@ -527,8 +527,9 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
                 mode = 1 , save image with bbox,class_name and score;
                 mode = 2 , save image with class_name,score and mask;
                 mode = 3 , save mask with black background;
+                mode = 4 , save mask with bbox and mask;
     """
-    mode_list = [0, 1, 2, 3]
+    mode_list = [0, 1, 2, 3, 4]
     assert mode in mode_list, "mode's value should in mode_list %s" % str(mode_list)
 
     if save_dir is None:
@@ -598,13 +599,15 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
             color = tuple(colors[index])
             draw.rectangle((x1, y1, x2, y2), outline=color)
         # Label
-        #font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
-        font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
-        draw.text((x1, y1), "%s %f" % (label, score), color, font)
-        a = list(boxes[value].astype(int))
+        if mode != 4:
+            #font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
+            font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
+            draw.text((x1, y1), "%s %f" % (label, score), color, font)
+            a = list(boxes[value].astype(int))
         # Add mask annotation
-        b1, b2, b3, b4 = boxes[value]
-        bbox = [int(b1), int(b2), int(b3), int(b4)]
+        width = int(x2 - x1)
+        height = int(y2 - y1)
+        bbox = [int(x1), int(y1), width, height]
         generator.add_raw_annotation(image_id, label, bbox, masks[value])
 
 
