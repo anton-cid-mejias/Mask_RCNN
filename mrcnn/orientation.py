@@ -18,7 +18,7 @@ def bin_block(input_tensor, angle_number, bin_number):
     x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_1')(input_tensor)
     x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_2')(x)
     bin_res = KL.TimeDistributed(KL.Dense(2), name=name + '_res')(x)
-    return bin_prob, bin_res
+    return bin_logits, bin_prob, bin_res
 
 
 def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
@@ -81,20 +81,16 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     for angle in range(0,3):
         angle_bins = []
         for bin in range(0,2):
-            bin_prob, bin_res = bin_block(shared, angle, bin)
-            angle_bins.append((bin_prob, bin_res))
+            bin_logits, bin_prob, bin_res = bin_block(shared, angle, bin)
+            angle_bins.append((bin_logits, bin_prob, bin_res))
 
         orientation.append(angle_bins)
     return orientation
 
-# TODO: Reimplement to our type of data
-def smooth_l1_loss(y_true, y_pred):
-    """Implements Smooth-L1 loss.
-    y_true and y_pred are typically: [N, 4], but could be any shape.
-    """
-    diff = K.abs(y_true - y_pred)
-    less_than_one = K.cast(K.less(diff, 1.0), "float32")
-    loss = (less_than_one * 0.5 * diff**2) + (1 - less_than_one) * (diff - 0.5)
+def l1_loss(y_true, y_pred, target_bin):
+    loss = 0
+    if target_bin == 1:
+        loss = K.abs(y_true - y_pred)
     return loss
 
 def orientation_loss_graph(target_bins, target_res_values, pred_orientation):
@@ -104,13 +100,16 @@ def orientation_loss_graph(target_bins, target_res_values, pred_orientation):
     for angle_number in range(len(pred_orientation)):
         angle = pred_orientation[angle_number]
         for bin_number in range(0, 2):
-            pred_bin = angle[bin_number][0]
-            target_bin = target_bins[angle_number:angle_number+1]
-            # Change it to logits?
+            pred_logits, _, pred_res = angle[bin_number]
+            target_bin = target_bins[angle_number + (bin_number * 2): angle_number + (bin_number * 2) + 1]
             bin_loss = K.sparse_categorical_crossentropy(target=target_bin,
-                                                         output=pred_bin)
-            # TODO
+                                                         output=pred_logits,
+                                                         from_logits=True)
             # Add L1 error as the difference between the target and predicted angle residues
+            target_res = target_res_values[angle_number + (bin_number * 2): angle_number + (bin_number * 2) + 1]
+            res_loss = l1_loss(target_res, pred_res, target_bin[0])
+            loss += bin_loss + res_loss
 
+    loss = loss / len(pred_orientation)
 
     return loss
