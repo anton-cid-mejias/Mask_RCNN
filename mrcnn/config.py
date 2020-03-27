@@ -210,6 +210,9 @@ class Config(object):
     # Gradient norm clipping
     GRADIENT_CLIP_NORM = 5.0
 
+    # Do train and inference with the orientation module
+    ORIENTATION = True
+
     def __init__(self):
         """Set values of computed attributes."""
         # Effective batch size

@@ -130,6 +130,7 @@ class FiguresConfig(Config):
     MINI_MASK_SHAPE = (56, 56)
 
     #MEAN_PIXEL = np.array([12.57, 12.57, 12.57])
+    ORIENTATION = False
 
 
 ############################################################
@@ -177,6 +178,19 @@ class FiguresDataset(utils.Dataset):
                     imgIds=[i], catIds=class_ids, iscrowd=None)))
         if return_coco:
             return coco
+
+    def load_orientation(self, image_id):
+        image_info = self.image_info[image_id]
+
+        instance_orientations = []
+        class_ids = []
+        annotations = self.image_info[image_id]["annotations"]
+        # Build mask of shape [height, width, instance_count] and list
+        # of class IDs that correspond to each channel of the mask.
+        for annotation in annotations:
+            instance_orientations.append(annotation['orientation'])
+
+        return np.array(instance_orientations)
 
     def load_mask(self, image_id):
         """Load instance masks for the given image.
@@ -372,8 +386,8 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=100,
-                augmentation=augmentation,
+                epochs=20,
+                augmentation=None,
                 layers='heads')
 
 def evaluate(model):

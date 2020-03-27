@@ -1,23 +1,48 @@
 import keras.layers as KL
 import keras.backend as K
+import math
 
 from mrcnn import model
+
+# 2 Bins
+# First [-210, 30], middle point -90
+# Second [-30, 210], middle point 90
+def get_gt_orientations(orientations):
+    first_bin = (-210, 30, -90)
+    second_bin = (-30, 210, 90)
+    gt_orientations = []
+    for orientation in orientations:
+        bin1 = [0, 0, 0]
+        bin2 = [0, 0, 0]
+        # Check first bin
+        if first_bin[0] <= orientation <= first_bin[1]:
+            res_angle = math.radians(orientation - first_bin[2])
+            bin1 = [1, math.cos(res_angle), math.sin(res_angle)]
+        # Check second bin
+        if second_bin[0] <= orientation <= second_bin[1]:
+            res_angle = math.radians(orientation - first_bin[2])
+            bin2 = [1, math.cos(res_angle), math.sin(res_angle)]
+
+        gt_orientations.append(tuple(bin1.extend(bin2)))
+
+    return gt_orientations
+
 
 # Block that creates the graph which results in the
 # probability of each bin and its residual angle values
 def bin_block(input_tensor, angle_number, bin_number):
     name = "angle_%i_bin_%i" % (angle_number, bin_number)
     # Probability
-    x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_2')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_classification_1')(input_tensor)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_classification_2')(x)
     bin_logits = KL.TimeDistributed(KL.Dense(2), name= name + '_logits')(x)
     bin_prob = KL.TimeDistributed(KL.Activation("softmax"),
-                                    name= name + "_prob")(bin_logits)
+                                    name= "mrcnn_" + name + "_prob")(bin_logits)
 
     # Residual angle
-    x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='bin_classification_2')(x)
-    bin_res = KL.TimeDistributed(KL.Dense(2), name=name + '_res')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_'+ name + 'bin_res_1')(input_tensor)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_res_2')(x)
+    bin_res = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res')(x)
     return bin_logits, bin_prob, bin_res
 
 
