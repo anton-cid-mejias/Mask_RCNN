@@ -875,11 +875,12 @@ class DetectionTargetLayerOr(KE.Layer):
             (None, self.config.TRAIN_ROIS_PER_IMAGE),  # class_ids
             (None, self.config.TRAIN_ROIS_PER_IMAGE, 4),  # deltas
             (None, self.config.TRAIN_ROIS_PER_IMAGE, self.config.MASK_SHAPE[0],
-             self.config.MASK_SHAPE[1])  # masks
+             self.config.MASK_SHAPE[1]),  # masks
+            (None, self.config.TRAIN_ROIS_PER_IMAGE, 3),  # angles
         ]
 
     def compute_mask(self, inputs, mask=None):
-        return [None, None, None, None]
+        return [None, None, None, None, None]
 
 
 ############################################################
@@ -2339,6 +2340,11 @@ class MaskRCNN():
                                               config.NUM_CLASSES,
                                               train_bn=config.TRAIN_BN)
 
+            if config.ORIENTATION:
+                orientations = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
+                                                                 mrcnn_bbox, mrcnn_mask, input_image_meta,
+                                                                 config.POOL_SIZE, train_bn=config.TRAIN_BN)
+
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
 
@@ -2353,16 +2359,31 @@ class MaskRCNN():
                 [target_bbox, target_class_ids, mrcnn_bbox])
             mask_loss = KL.Lambda(lambda x: mrcnn_mask_loss_graph(*x), name="mrcnn_mask_loss")(
                 [target_mask, target_class_ids, mrcnn_mask])
+            if config.ORIENTATION:
+                orientation_loss = KL.Lambda(lambda x: orientation.orientation_loss_graph(*x), name="mrcnn_orientation_loss")(
+                    [target_orientation, target_class_ids, orientations])
 
             # Model
-            inputs = [input_image, input_image_meta,
-                      input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
-            if not config.USE_RPN_ROIS:
-                inputs.append(input_rois)
-            outputs = [rpn_class_logits, rpn_class, rpn_bbox,
-                       mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask,
-                       rpn_rois, output_rois,
-                       rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, mask_loss]
+            if not config.ORIENTATION:
+                inputs = [input_image, input_image_meta,
+                          input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
+                if not config.USE_RPN_ROIS:
+                    inputs.append(input_rois)
+                outputs = [rpn_class_logits, rpn_class, rpn_bbox,
+                           mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask,
+                           rpn_rois, output_rois,
+                           rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, mask_loss]
+            else:
+                inputs = [input_image, input_image_meta,
+                          input_rpn_match, input_rpn_bbox, input_gt_class_ids,
+                          input_gt_boxes, input_gt_masks, input_gt_orientation]
+                if not config.USE_RPN_ROIS:
+                    inputs.append(input_rois)
+                outputs = [rpn_class_logits, rpn_class, rpn_bbox,
+                           mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask, orientations,
+                           rpn_rois, output_rois,
+                           rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, mask_loss, orientation_loss]
+
             model = KM.Model(inputs, outputs, name='mask_rcnn')
         else:
             # Network Heads

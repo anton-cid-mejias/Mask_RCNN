@@ -130,7 +130,7 @@ class FiguresConfig(Config):
     MINI_MASK_SHAPE = (56, 56)
 
     #MEAN_PIXEL = np.array([12.57, 12.57, 12.57])
-    ORIENTATION = False
+    ORIENTATION = True
 
 
 ############################################################
