@@ -111,9 +111,7 @@ def get_transformed_orientations(orientations):
         less_than1 = angles <= first_bin[1]
         less_than2 = angles >= first_bin[0]
         # Probability 1
-        prob11 = tf.math.logical_and(less_than1, less_than2)
-        prob12 = tf.cast(tf.math.logical_not(tf.identity(prob11)), dtype=tf.float32)
-        prob11 = tf.cast(prob11, dtype=tf.float32)
+        prob1 = tf.cast(tf.math.logical_and(less_than1, less_than2), dtype=tf.float32)
         # Residues 1
         res = angles - first_bin[2]
         res = res * deg2rad
@@ -123,17 +121,24 @@ def get_transformed_orientations(orientations):
         less_than1 = angles <= second_bin[1]
         less_than2 = angles >= second_bin[0]
         # Probability 2
-        prob21 = tf.math.logical_and(less_than1, less_than2)
-        prob22 = tf.cast(tf.math.logical_not(tf.identity(prob21)), dtype=tf.float32)
-        prob21 = tf.cast(prob21, dtype=tf.float32)
+        prob2 = tf.cast(tf.math.logical_and(less_than1, less_than2), dtype=tf.float32)
         # Residues 2
         res = angles - second_bin[2]
         res = res * deg2rad
         cos2 = tf.math.cos(res)
         sin2 = tf.math.sin(res)
-        r.append(tf.stack([prob11, prob12, sin1, cos1, prob21, prob22, sin2, cos2], axis=1))
+        r.append(tf.stack([prob1, sin1, cos1, prob2, sin2, cos2], axis=1))
 
-    return tf.reshape(tf.stack(r, axis=1), (-1, 24))
+    return tf.reshape(tf.stack(r, axis=1), (-1, 18))
+
+def smooth_l1_loss(y_true, y_pred):
+    """Implements Smooth-L1 loss.
+    y_true and y_pred are typically: [N, 4], but could be any shape.
+    """
+    diff = K.abs(y_true - y_pred)
+    less_than_one = K.cast(K.less(diff, 1.0), "float32")
+    loss = (less_than_one * 0.5 * diff**2) + (1 - less_than_one) * (diff - 0.5)
+    return loss
 
 def orientation_loss_graph(target_orientations, target_class_ids, pred_orientation):
     """Loss for Mask R-CNN orientation regression.
@@ -143,19 +148,19 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
     target_orientations = K.reshape(target_orientations, (-1, 3))
     pred_orientation = K.reshape(pred_orientation, (-1, 36))
 
-    target_orientations = get_transformed_orientations(target_orientations)
-
     # Only positive ROIs contribute to the loss.
     positive_roi_ix = tf.where(target_class_ids > 0)[:, 0]
     # Gather the rois that contribute to the loss
     target_orientations = tf.gather(target_orientations, positive_roi_ix)
     pred_orientation = tf.gather(pred_orientation, positive_roi_ix)
 
+    target_orientations = get_transformed_orientations(target_orientations)
+
     # Iterate over each of the bins
     losses = []
     for i in range(0, 6):
         # target_orientation bin: [pos, neg, sin, cos]
-        target_bin_prob = target_orientations[:, i*4: i*4 + 2]
+        target_bin_prob = target_orientations[:, i*3]
         # target_orientation bin: [pos_logit, neg_logit, pos, neg, sin, cos]
         pred_bin_logits = pred_orientation[:, i*6: i*6 + 2]
 
@@ -164,9 +169,10 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
                                                      from_logits=True)
         softmax_loss = K.mean(softmax_loss)
 
-        target_bin_res = target_orientations[:, i*4 + 2: i*4 + 4]
+        target_bin_res = target_orientations[:, i*3 + 1: i*3 + 3]
         pred_bin_res = pred_orientation[:, i*6 + 4: i*6 + 6]
-        l1_loss = K.mean(K.abs(target_bin_res - pred_bin_res) * target_bin_prob[:, 0])
+        l1_loss = smooth_l1_loss(target_bin_res, pred_bin_res)
+        l1_loss = K.mean((l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob)
 
         losses.append(softmax_loss + l1_loss)
 
