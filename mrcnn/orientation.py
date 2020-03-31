@@ -2,6 +2,7 @@ import keras.layers as KL
 import keras.backend as K
 import math
 import tensorflow as tf
+import sys
 
 from mrcnn import model
 
@@ -10,15 +11,15 @@ from mrcnn import model
 def bin_block(input_tensor, angle_number, bin_number):
     name = "angle_%i_bin_%i" % (angle_number, bin_number)
     # Probability
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_classification_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_classification_2')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_classification_1')(input_tensor)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_classification_2')(x)
     bin_logits = KL.TimeDistributed(KL.Dense(2), name= 'mrcnn_' + name + '_logits')(x)
     bin_prob = KL.TimeDistributed(KL.Activation("softmax"),
                                     name= "mrcnn_" + name + "_prob")(bin_logits)
 
     # Residual angle
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_'+ name + 'bin_res_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + 'bin_res_2')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_'+ name + '_bin_res_1')(input_tensor)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_res_2')(x)
     bin_res = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res')(x)
 
     return KL.Concatenate(axis=2)([bin_logits, bin_prob, bin_res])
@@ -110,7 +111,9 @@ def get_transformed_orientations(orientations):
         less_than1 = angles <= first_bin[1]
         less_than2 = angles >= first_bin[0]
         # Probability 1
-        prob1 = tf.cast(tf.math.logical_and(less_than1, less_than2), dtype=tf.float32)
+        prob11 = tf.math.logical_and(less_than1, less_than2)
+        prob12 = tf.cast(tf.math.logical_not(tf.identity(prob11)), dtype=tf.float32)
+        prob11 = tf.cast(prob11, dtype=tf.float32)
         # Residues 1
         res = angles - first_bin[2]
         res = res * deg2rad
@@ -120,46 +123,53 @@ def get_transformed_orientations(orientations):
         less_than1 = angles <= second_bin[1]
         less_than2 = angles >= second_bin[0]
         # Probability 2
-        prob2 = tf.cast(tf.math.logical_and(less_than1, less_than2), dtype=tf.float32)
+        prob21 = tf.math.logical_and(less_than1, less_than2)
+        prob22 = tf.cast(tf.math.logical_not(tf.identity(prob21)), dtype=tf.float32)
+        prob21 = tf.cast(prob21, dtype=tf.float32)
         # Residues 2
         res = angles - second_bin[2]
         res = res * deg2rad
         cos2 = tf.math.cos(res)
         sin2 = tf.math.sin(res)
-        r.append(tf.stack([prob1, cos1, sin1, prob2, sin2, cos2]))
+        r.append(tf.stack([prob11, prob12, sin1, cos1, prob21, prob22, sin2, cos2], axis=1))
 
-    return tf.reshape(tf.stack(r, axis=0), (18, -1))
-
-def l1_loss(y_true, y_pred, target_bin):
-    loss = 0
-    if target_bin == 1:
-        loss = K.abs(y_true - y_pred)
-    return loss
+    return tf.reshape(tf.stack(r, axis=1), (-1, 24))
 
 def orientation_loss_graph(target_orientations, target_class_ids, pred_orientation):
     """Loss for Mask R-CNN orientation regression.
     """
-
     # Remove batch dimension for simplicity
     target_class_ids = K.reshape(target_class_ids, (-1,))
     target_orientations = K.reshape(target_orientations, (-1, 3))
     pred_orientation = K.reshape(pred_orientation, (-1, 36))
 
     target_orientations = get_transformed_orientations(target_orientations)
-    loss = 0
-    for angle_number in range(len(pred_orientation)):
-        angle = pred_orientation[angle_number]
-        for bin_number in range(0, 2):
-            pred_logits, _, pred_res = angle[bin_number]
-            target_bin = target_bins[angle_number + (bin_number * 2): angle_number + (bin_number * 2) + 1]
-            bin_loss = K.sparse_categorical_crossentropy(target=target_bin,
-                                                         output=pred_logits,
-                                                         from_logits=True)
-            # Add L1 error as the difference between the target and predicted angle residues
-            target_res = target_res_values[angle_number + (bin_number * 2): angle_number + (bin_number * 2) + 1]
-            res_loss = l1_loss(target_res, pred_res, target_bin[0])
-            loss += bin_loss + res_loss
 
-    loss = loss / len(pred_orientation)
+    # Only positive ROIs contribute to the loss.
+    positive_roi_ix = tf.where(target_class_ids > 0)[:, 0]
+    # Gather the rois that contribute to the loss
+    target_orientations = tf.gather(target_orientations, positive_roi_ix)
+    pred_orientation = tf.gather(pred_orientation, positive_roi_ix)
+
+    # Iterate over each of the bins
+    losses = []
+    for i in range(0, 6):
+        # target_orientation bin: [pos, neg, sin, cos]
+        target_bin_prob = target_orientations[:, i*4: i*4 + 2]
+        # target_orientation bin: [pos_logit, neg_logit, pos, neg, sin, cos]
+        pred_bin_logits = pred_orientation[:, i*6: i*6 + 2]
+
+        softmax_loss = K.sparse_categorical_crossentropy(target=target_bin_prob,
+                                                     output=pred_bin_logits,
+                                                     from_logits=True)
+        softmax_loss = K.mean(softmax_loss)
+
+        target_bin_res = target_orientations[:, i*4 + 2: i*4 + 4]
+        pred_bin_res = pred_orientation[:, i*6 + 4: i*6 + 6]
+        l1_loss = K.mean(K.abs(target_bin_res - pred_bin_res) * target_bin_prob[:, 0])
+
+        losses.append(softmax_loss + l1_loss)
+
+    loss = tf.math.add_n(losses) / 6
 
     return loss

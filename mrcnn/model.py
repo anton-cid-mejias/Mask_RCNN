@@ -2366,7 +2366,8 @@ class MaskRCNN():
             # Model
             if not config.ORIENTATION:
                 inputs = [input_image, input_image_meta,
-                          input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
+                          input_rpn_match, input_rpn_bbox,
+                          input_gt_class_ids, input_gt_boxes, input_gt_masks]
                 if not config.USE_RPN_ROIS:
                     inputs.append(input_rois)
                 outputs = [rpn_class_logits, rpn_class, rpn_bbox,
@@ -2386,6 +2387,7 @@ class MaskRCNN():
 
             model = KM.Model(inputs, outputs, name='mask_rcnn')
         else:
+            # TODO: add orientation prediction
             # Network Heads
             # Proposal classifier and BBox regressor heads
             mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
@@ -2507,7 +2509,7 @@ class MaskRCNN():
                                 md5_hash='a268eb855778b3df3c7506639542a6af')
         return weights_path
 
-    def compile(self, learning_rate, momentum):
+    def compile(self, learning_rate, momentum, orientation):
         """Gets the model ready for training. Adds losses, regularization, and
         metrics. Then calls the Keras compile() function.
         """
@@ -2521,7 +2523,10 @@ class MaskRCNN():
         self.keras_model._per_input_losses = {}
         loss_names = [
             "rpn_class_loss",  "rpn_bbox_loss",
-            "mrcnn_class_loss", "mrcnn_bbox_loss", "mrcnn_mask_loss"]
+            "mrcnn_class_loss", "mrcnn_bbox_loss",
+            "mrcnn_mask_loss"]
+        if orientation:
+            loss_names.append("mrcnn_orientation_loss")
         for name in loss_names:
             layer = self.keras_model.get_layer(name)
             if layer.output in self.keras_model.losses:
@@ -2708,7 +2713,7 @@ class MaskRCNN():
         log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
         log("Checkpoint Path: {}".format(self.checkpoint_path))
         self.set_trainable(layers)
-        self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
+        self.compile(learning_rate, self.config.LEARNING_MOMENTUM, self.config.ORIENTATION)
 
         # Work-around for Windows: Keras fails on Windows when using
         # multiprocessing workers. See discussion here:
