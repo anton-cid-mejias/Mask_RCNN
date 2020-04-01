@@ -2,7 +2,6 @@ import keras.layers as KL
 import keras.backend as K
 import math
 import tensorflow as tf
-import sys
 
 from mrcnn import model
 
