@@ -2,6 +2,7 @@ import keras.layers as KL
 import keras.backend as K
 import math
 import tensorflow as tf
+import numpy as np
 
 from mrcnn import model
 
@@ -54,10 +55,15 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     x = model.PyramidROIAlign([pool_size, pool_size],
                         name="roi_align_orientation")([rois, image_meta] + feature_maps)
 
-    masks = KL.TimeDistributed(KL.MaxPooling2D(pool_size=(4, 4), strides=None, padding='valid'))(masks)
+    #masks = KL.TimeDistributed(KL.MaxPooling2D(pool_size=(4, 4), strides=None, padding='valid'))(masks)
 
+    # TODO add masks
     # Concatenate the predicted masks to the feature maps
-    x = KL.Concatenate(axis=4)([x,masks])
+    #dim = K.int_shape(x)
+    #x = KL.Reshape((-1, dim[1] * dim[4], dim[2], dim[3]))(x)
+    #dim = K.int_shape(masks)
+    #masks = KL.Reshape((-1, dim[2], dim[3], dim[1] * dim[4]))(masks)
+    #x = KL.Concatenate(axis=2)([x, masks])
 
     # Two 1024 FC layers (implemented with Conv2D for consistency)
     # First layer
@@ -114,8 +120,8 @@ def get_transformed_orientations(orientations):
         # Residues 1
         res = angles - first_bin[2]
         res = res * deg2rad
-        cos1 = tf.math.cos(res)
         sin1 = tf.math.sin(res)
+        cos1 = tf.math.cos(res)
         # Bin 2
         less_than1 = angles <= second_bin[1]
         less_than2 = angles >= second_bin[0]
@@ -124,11 +130,11 @@ def get_transformed_orientations(orientations):
         # Residues 2
         res = angles - second_bin[2]
         res = res * deg2rad
-        cos2 = tf.math.cos(res)
         sin2 = tf.math.sin(res)
+        cos2 = tf.math.cos(res)
         r.append(tf.stack([prob1, sin1, cos1, prob2, sin2, cos2], axis=1))
 
-    return tf.reshape(tf.stack(r, axis=1), (-1, 18))
+    return tf.concat(r, axis=1)
 
 def smooth_l1_loss(y_true, y_pred):
     """Implements Smooth-L1 loss.
@@ -158,23 +164,76 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
     # Iterate over each of the bins
     losses = []
     for i in range(0, 6):
-        # target_orientation bin: [pos, neg, sin, cos]
+        # target_orientation bin: [prob, sin, cos]
         target_bin_prob = target_orientations[:, i*3]
-        # target_orientation bin: [pos_logit, neg_logit, pos, neg, sin, cos]
+        # target_orientation bin: [neg_logit, pos_logit, pos, neg, sin, cos]
         pred_bin_logits = pred_orientation[:, i*6: i*6 + 2]
 
         softmax_loss = K.sparse_categorical_crossentropy(target=target_bin_prob,
                                                      output=pred_bin_logits,
                                                      from_logits=True)
-        softmax_loss = K.mean(softmax_loss)
 
         target_bin_res = target_orientations[:, i*3 + 1: i*3 + 3]
         pred_bin_res = pred_orientation[:, i*6 + 4: i*6 + 6]
         l1_loss = smooth_l1_loss(target_bin_res, pred_bin_res)
-        l1_loss = K.mean((l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob)
+        l1_loss = (l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob
 
-        losses.append(softmax_loss + l1_loss)
+        losses.append(K.mean(softmax_loss + l1_loss))
 
     loss = tf.math.add_n(losses) / 6
 
     return loss
+
+def calculate_angle(sin, cos, res):
+    deg2rad = 180 / math.pi
+    angle = (np.arctan2(sin, cos) * deg2rad) + res
+    return angle
+
+def unmold_orientations(detections, mrcnn_orientations):
+    # How many detections do we have?
+    # Detections array is padded with zeros. Find the first class_id == 0.
+    zero_ix = np.where(detections[:, 4] == 0)[0]
+    N = zero_ix[0] if zero_ix.shape[0] > 0 else detections.shape[0]
+
+    res_angle = (-90, 90)
+
+    orientations = mrcnn_orientations[np.arange(N), :]
+    angles = []
+    for i in range(N):
+        bins = []
+        for j in range(0,6):
+            bin = orientations[i, j*6 + 2:j*6 + 6]
+            included = bin[1]
+            angle = np.nan
+            if included > 0.75:
+                angle = calculate_angle(bin[2], bin[3], res_angle[j % 2])
+            bins.append(angle)
+        bins = np.hstack(bins)
+        angles.append(bins)
+    angles = np.vstack(angles)
+    return angles
+
+def unmold_orientation_test(orientation):
+    res_angle = (-90, 90)
+
+    bins = []
+    for j in range(0,6):
+        bin = orientation[j*3:j*3 + 3]
+        included = bin[0]
+        angle = np.nan
+        if included > 0.75:
+            angle = calculate_angle(bin[1], bin[2], res_angle[j % 2])
+        bins.append(angle)
+    bins = np.hstack(bins)
+    return bins
+
+# Test
+if __name__=="__main__":
+    angles = tf.reshape(tf.constant([180., 180., 180.]), (1, 3))
+    transformed = get_transformed_orientations(angles)
+    sess = tf.compat.v1.Session()
+    transformed = sess.run(transformed)
+    print(transformed)
+
+    unmolded = unmold_orientation_test(transformed[0, :])
+    print(unmolded)

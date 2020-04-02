@@ -113,7 +113,7 @@ class FiguresConfig(Config):
     MAX_GT_INSTANCES = 200
 
     # Max number of final detections per image
-    DETECTION_MAX_INSTANCES = 100
+    DETECTION_MAX_INSTANCES = 300
 
     LEARNING_RATE = 0.0005
 
@@ -406,7 +406,7 @@ def evaluate(model):
         print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
                                                dataset.image_reference(image_id)))
         # Run object detection
-        results = model.detect([image], verbose=1)
+        results = model.detect([image], config, verbose=1)
         r = results[0]
         # Save image as pred_x.png and save annotations in COCO format
         gen.add_image(info['path'], image.shape[0], image.shape[1])

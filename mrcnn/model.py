@@ -2410,9 +2410,19 @@ class MaskRCNN():
                                               config.NUM_CLASSES,
                                               train_bn=config.TRAIN_BN)
 
+            if config.ORIENTATION:
+                orientations = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
+                                                                 mrcnn_bbox, mrcnn_mask, input_image_meta,
+                                                                 config.POOL_SIZE, train_bn=config.TRAIN_BN)
+
+            outputs = [detections, mrcnn_class, mrcnn_bbox,
+                                 mrcnn_mask, rpn_rois, rpn_class, rpn_bbox]
+
+            if config.ORIENTATION:
+                outputs.append(orientations)
+
             model = KM.Model([input_image, input_image_meta, input_anchors],
-                             [detections, mrcnn_class, mrcnn_bbox,
-                                 mrcnn_mask, rpn_rois, rpn_class, rpn_bbox],
+                             outputs,
                              name='mask_rcnn')
 
         # Add multi-GPU support.
@@ -2904,7 +2914,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, resized_masks
 
-    def detect(self, images, verbose=0):
+    def detect(self, images, config, verbose=0):
         """Runs the detection pipeline.
 
         images: List of images, potentially of different sizes.
@@ -2945,8 +2955,12 @@ class MaskRCNN():
             log("image_metas", image_metas)
             log("anchors", anchors)
         # Run object detection
-        detections, _, _, mrcnn_mask, _, _, _ =\
-            self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
+        if not config.ORIENTATION:
+            detections, _, _, mrcnn_mask, _, _, _ =\
+                self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
+        else:
+            detections, _, _, mrcnn_mask, _, _, _, orientations = \
+                self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
         # Process detections
         results = []
         for i, image in enumerate(images):
@@ -2954,6 +2968,10 @@ class MaskRCNN():
                 self.unmold_detections_compressed(detections[i], mrcnn_mask[i],
                                        image.shape, molded_images[i].shape,
                                        windows[i])
+            if config.ORIENTATION:
+                final_orientations = orientation.unmold_orientations(detections[i], orientations[i])
+                print(final_orientations)
+
             results.append({
                 "rois": final_rois,
                 "class_ids": final_class_ids,
