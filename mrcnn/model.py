@@ -2342,7 +2342,7 @@ class MaskRCNN():
 
             if config.ORIENTATION:
                 orientations = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
-                                                                 mrcnn_bbox, mrcnn_mask, input_image_meta,
+                                                                 mrcnn_bbox, input_image_meta,
                                                                  config.POOL_SIZE, train_bn=config.TRAIN_BN)
 
             # TODO: clean up (use tf.identify if necessary)
@@ -2412,7 +2412,7 @@ class MaskRCNN():
 
             if config.ORIENTATION:
                 orientations = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
-                                                                 mrcnn_bbox, mrcnn_mask, input_image_meta,
+                                                                 mrcnn_bbox, input_image_meta,
                                                                  config.POOL_SIZE, train_bn=config.TRAIN_BN)
 
             outputs = [detections, mrcnn_class, mrcnn_bbox,
@@ -2968,16 +2968,19 @@ class MaskRCNN():
                 self.unmold_detections_compressed(detections[i], mrcnn_mask[i],
                                        image.shape, molded_images[i].shape,
                                        windows[i])
-            if config.ORIENTATION:
-                final_orientations = orientation.unmold_orientations(detections[i], orientations[i])
-                print(final_orientations)
 
-            results.append({
+            result = {
                 "rois": final_rois,
                 "class_ids": final_class_ids,
                 "scores": final_scores,
                 "masks": final_masks,
-            })
+            }
+
+            if config.ORIENTATION:
+                final_orientations = orientation.unmold_orientations(detections[i], orientations[i])
+                result['orientations'] = final_orientations
+
+            results.append(result)
         return results
 
     def detect_molded(self, molded_images, image_metas, verbose=0):

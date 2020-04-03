@@ -96,7 +96,7 @@ class AnnotationsGenerator:
     def get_category_id(self, category):
         return self.categories_dict[category]
 
-    def add_annotation(self, image_id, category, bbox, area, segmentation):
+    def add_annotation(self, image_id, category, bbox, area, segmentation, orientation):
         new_id = len(self.annotations) + 1
         category_id = self.categories_dict[category]
         if category_id == None:
@@ -107,13 +107,14 @@ class AnnotationsGenerator:
             "bbox": bbox, #[top left x position, top left y position, width, height]
             "area": area,
             "segmentation": segmentation,
+            "orientation": orientation,  # [anglex, angley, anglez]
             "iscrowd": 0,
             "id": new_id
         }
         self.annotations.append(annotation_dict)
         return
 
-    def add_raw_annotation(self, image_id, category, bbox, mask):
+    def add_raw_annotation(self, image_id, category, bbox, mask, orientation):
         new_id = len(self.annotations) + 1
         category_id = self.categories_dict[category]
         width, height = bbox[:-2]
@@ -127,6 +128,7 @@ class AnnotationsGenerator:
             "bbox": bbox, #[top left x position, top left y position, width, height]
             "area": area,
             "segmentation": segmentation,
+            "orientation": orientation,  # [anglex, angley, anglez]
             "iscrowd": 0,
             "id": new_id
         }

@@ -113,7 +113,7 @@ class FiguresConfig(Config):
     MAX_GT_INSTANCES = 200
 
     # Max number of final detections per image
-    DETECTION_MAX_INSTANCES = 300
+    DETECTION_MAX_INSTANCES = 10#300
 
     LEARNING_RATE = 0.0005
 
@@ -412,8 +412,14 @@ def evaluate(model):
         gen.add_image(info['path'], image.shape[0], image.shape[1])
         image_id = gen.get_image_id(info['path'])
         filename = info["source"] + "_" + str(image_id)
-        save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                  dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
+
+        if config.ORIENTATION:
+            save_image(image, filename, r['rois'], r['masks'], r['orientations'], r['class_ids'], r['scores'],
+                      dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
+        else:
+            save_image(image, filename, r['rois'], r['masks'], None, r['class_ids'], r['scores'],
+                       dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
+
     # Save the results in an annotation file following the COCO dataset structure
     gen.save_json("../results/val" + "/evaluation_annotations.json", pretty=True)
 
@@ -444,15 +450,19 @@ def detect(model, image_dir):
             if image.shape[-1] == 4:
                 image = image[..., :3]
             # Detect objects
-            results = model.detect([image], verbose=1)
+            results = model.detect([image], config, verbose=1)
             r = results[0]
             # Save image as pred_x.png and save annotations in COCO format
             gen.add_image(file, image.shape[0], image.shape[1])
             image_id = gen.get_image_id(file)
             filename = "pred_%i" % i
             # Save image as pred_x.png
-            save_image(image, filename, r['rois'], r['masks'], r['class_ids'], r['scores'],
-                       dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=4)
+            if config.ORIENTATION:
+                save_image(image, filename, r['rois'], r['masks'], r['orientations'], r['class_ids'], r['scores'],
+                           dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=4)
+            else:
+                save_image(image, filename, r['rois'], r['masks'], None, r['class_ids'], r['scores'],
+                           dataset.class_names, gen, image_id, save_dir="../results/predictions", mode=4)
             # Save the results in an annotation file following the COCO dataset structure
             i += 1
     # Save the results in an annotation file following the COCO dataset structure

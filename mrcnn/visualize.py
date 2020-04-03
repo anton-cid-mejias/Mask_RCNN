@@ -509,7 +509,7 @@ def display_weight_stats(model):
             ])
     display_table(table)
 
-def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, generator, image_id,
+def save_image(image, image_name, boxes, masks, orientations, class_ids, scores, class_names, generator, image_id,
                filter_classs_names=None, save_dir=None, mode=0):
     """
         image: image array
@@ -608,7 +608,15 @@ def save_image(image, image_name, boxes, masks, class_ids, scores, class_names, 
         width = int(x2 - x1)
         height = int(y2 - y1)
         bbox = [int(x1), int(y1), width, height]
-        generator.add_raw_annotation(image_id, label, bbox, masks[value])
+        if orientations is not None:
+            orientation = orientations[value]
+            font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
+            draw.text((x1, y1), "%.2f %.2f %.2f %.2f %.2f %.2f"
+                      % (orientation[0], orientation[1], orientation[2], orientation[3],
+                         orientation[4], orientation[5]), color, font)
+            generator.add_raw_annotation(image_id, label, bbox, masks[value], orientation)
+        else:
+            generator.add_raw_annotation(image_id, label, bbox, masks[value], [])
 
 
     masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")

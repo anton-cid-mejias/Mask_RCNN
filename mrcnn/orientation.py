@@ -3,6 +3,8 @@ import keras.backend as K
 import math
 import tensorflow as tf
 import numpy as np
+from keras import regularizers
+from keras import losses
 
 from mrcnn import model
 
@@ -24,9 +26,34 @@ def bin_block(input_tensor, angle_number, bin_number):
 
     return KL.Concatenate(axis=2)([bin_logits, bin_prob, bin_res])
 
+# Block that creates the graph which results in the
+# probability of each bin and its residual angle values
+def bin_block_2(input_tensor, train_bn):
+    # Probability
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_class_dense_1')(input_tensor)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_bin_class_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_class_2')(x)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_class_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    bin_logits = KL.TimeDistributed(KL.Dense(6), name= 'mrcnn_bin_class_logits')(x)
+    bin_prob = KL.TimeDistributed(KL.Activation("sigmoid"),
+                                    name= "mrcnn_bin_class_prob")(bin_logits)
+
+    # Residual angle
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_res_dense_1')(input_tensor)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_res_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_res_2')(x)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_res_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    bin_res = KL.TimeDistributed(KL.Dense(12, kernel_regularizer=regularizers.l2(0.001)), name='mrcnn_bin_res_values')(x)
+
+    return KL.Concatenate(axis=2)([bin_logits, bin_prob, bin_res])
+
 
 def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
-                          mrcnn_bbox, masks, image_meta,
+                          mrcnn_bbox, image_meta,
                          pool_size, train_bn=True):
     """Builds the computation graph of the feature pyramid network orientation
      heads.
@@ -37,33 +64,18 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
                   [P2, P3, P4, P5]. Each has a different resolution.
     mrcnn_probs: classifier probabilities.
     mrcnn_bbox: Deltas to apply to proposal boxes
-    masks: masks regressed. [batch, num_rois, MASK_POOL_SIZE, MASK_POOL_SIZE, NUM_CLASSES]
     image_meta: [batch, (meta data)] Image details. See compose_image_meta()
     pool_size: The width of the square feature map generated from ROI Pooling.
-    num_classes: number of classes, which determines the depth of the results
     train_bn: Boolean. Train or freeze Batch Norm layers
-    fc_layers_size: Size of the 2 FC layers
 
     Returns:
         logits: [batch, num_rois, NUM_CLASSES] classifier logits (before softmax)
         probs: [batch, num_rois, NUM_CLASSES] classifier probabilities
-        bbox_deltas: [batch, num_rois, NUM_CLASSES, (dy, dx, log(dh), log(dw))] Deltas to apply to
-                     proposal boxes
     """
     # ROI Pooling
     # Shape: [batch, num_rois, POOL_SIZE, POOL_SIZE, channels]
     x = model.PyramidROIAlign([pool_size, pool_size],
                         name="roi_align_orientation")([rois, image_meta] + feature_maps)
-
-    #masks = KL.TimeDistributed(KL.MaxPooling2D(pool_size=(4, 4), strides=None, padding='valid'))(masks)
-
-    # TODO add masks
-    # Concatenate the predicted masks to the feature maps
-    #dim = K.int_shape(x)
-    #x = KL.Reshape((-1, dim[1] * dim[4], dim[2], dim[3]))(x)
-    #dim = K.int_shape(masks)
-    #masks = KL.Reshape((-1, dim[2], dim[3], dim[1] * dim[4]))(masks)
-    #x = KL.Concatenate(axis=2)([x, masks])
 
     # Two 1024 FC layers (implemented with Conv2D for consistency)
     # First layer
@@ -86,19 +98,20 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     shared = KL.Concatenate(axis=2)([shared, mrcnn_probs])
 
     # Add detected bounding box
-    #newdim = [-1, mrcnn_bbox.shape[1], mrcnn_bbox.shape[2] * mrcnn_bbox.shape[3]]
     s = K.int_shape(mrcnn_bbox)
     mrcnn_bbox = KL.Reshape((s[1], s[2] * s[3]))(mrcnn_bbox)
     shared = KL.Concatenate(axis=2)([shared, mrcnn_bbox])
 
+    orientation = bin_block_2(shared, train_bn)
+    '''
     outputs = []
     for angle in range(0,3):
         for bin in range(0,2):
             #bin_logits, bin_prob, bin_res = bin_block(shared, angle, bin)
             output = bin_block(shared, angle, bin)
             outputs.append(output)
-
     orientation = KL.Concatenate(axis=2)(outputs)
+    '''
     return orientation
 
 # 2 Bins
@@ -151,7 +164,7 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
     # Remove batch dimension for simplicity
     target_class_ids = K.reshape(target_class_ids, (-1,))
     target_orientations = K.reshape(target_orientations, (-1, 3))
-    pred_orientation = K.reshape(pred_orientation, (-1, 36))
+    pred_orientation = K.reshape(pred_orientation, (-1, 24))
 
     # Only positive ROIs contribute to the loss.
     positive_roi_ix = tf.where(target_class_ids > 0)[:, 0]
@@ -162,7 +175,25 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
     target_orientations = get_transformed_orientations(target_orientations)
 
     # Iterate over each of the bins
-    losses = []
+    losses_list = []
+    pred_class_logits = pred_orientation[:, 0:6]
+    pred_res = pred_orientation[:, 12:24]
+    for i in range(0, 6):
+        # target_orientation bin: [prob, sin, cos]
+        target_bin_prob = target_orientations[:, i * 3]
+        # target_orientation bin: [neg_logit, pos_logit, pos, neg, sin, cos]
+        pred_bin_logits = pred_class_logits[:, i]
+
+        class_loss = K.binary_crossentropy(target=target_bin_prob,
+                                             output=pred_bin_logits,
+                                             from_logits=True)
+
+        target_bin_res = target_orientations[:, i * 3 + 1: i * 3 + 3]
+        pred_bin_res = pred_res[:, i * 2: i * 2 + 2]
+        l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
+
+        losses_list.append(K.mean(class_loss + l2_loss * target_bin_prob))
+    '''
     for i in range(0, 6):
         # target_orientation bin: [prob, sin, cos]
         target_bin_prob = target_orientations[:, i*3]
@@ -179,8 +210,8 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_orientati
         l1_loss = (l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob
 
         losses.append(K.mean(softmax_loss + l1_loss))
-
-    loss = tf.math.add_n(losses) / 6
+    '''
+    loss = tf.math.add_n(losses_list) / 6
 
     return loss
 
@@ -210,7 +241,7 @@ def unmold_orientations(detections, mrcnn_orientations):
             bins.append(angle)
         bins = np.hstack(bins)
         angles.append(bins)
-    angles = np.vstack(angles)
+    angles = np.vstack(angles).tolist()
     return angles
 
 def unmold_orientation_test(orientation):
