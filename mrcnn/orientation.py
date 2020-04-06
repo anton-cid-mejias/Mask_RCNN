@@ -10,21 +10,29 @@ from mrcnn import model
 
 # Block that creates the graph which results in the
 # probability of each bin and its residual angle values
-def bin_block(input_tensor, angle_number, bin_number):
+def bin_block(input_tensor, angle_number, bin_number, train_bn):
     name = "angle_%i_bin_%i" % (angle_number, bin_number)
     # Probability
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_classification_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_classification_2')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_class_1')(input_tensor)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_class_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_class_2')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_class_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
     bin_logits = KL.TimeDistributed(KL.Dense(2), name= 'mrcnn_' + name + '_logits')(x)
     bin_prob = KL.TimeDistributed(KL.Activation("softmax"),
                                     name= "mrcnn_" + name + "_prob")(bin_logits)
 
     # Residual angle
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_'+ name + '_bin_res_1')(input_tensor)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_bin_res_2')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_'+ name + '_res_1')(input_tensor)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_res_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_res_2')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_res_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
     bin_res = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res')(x)
 
-    return KL.Concatenate(axis=2)([bin_logits, bin_prob, bin_res])
+    return bin_logits, bin_prob, bin_res
 
 # Block that creates the graph which results in the
 # probability of each bin and its residual angle values
@@ -102,17 +110,21 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     mrcnn_bbox = KL.Reshape((s[1], s[2] * s[3]))(mrcnn_bbox)
     shared = KL.Concatenate(axis=2)([shared, mrcnn_bbox])
 
-    orientation = bin_block_2(shared, train_bn)
-    '''
-    outputs = []
+    logits = []
+    probs = []
+    res = []
     for angle in range(0,3):
         for bin in range(0,2):
-            #bin_logits, bin_prob, bin_res = bin_block(shared, angle, bin)
-            output = bin_block(shared, angle, bin)
-            outputs.append(output)
-    orientation = KL.Concatenate(axis=2)(outputs)
-    '''
-    return orientation
+            bin_logits, bin_prob, bin_res = bin_block(shared, angle, bin, train_bn)
+            logits.append(bin_logits)
+            probs.append(bin_prob)
+            res.append(bin_res)
+
+    logits = KL.Concatenate(axis=2)(logits)
+    probs = KL.Concatenate(axis=2)(probs)
+    res = KL.Concatenate(axis=2)(res)
+
+    return logits, probs, res
 
 # 2 Bins
 # First [-210, 30], middle point -90
@@ -149,68 +161,42 @@ def get_transformed_orientations(orientations):
 
     return tf.concat(r, axis=1)
 
-def smooth_l1_loss(y_true, y_pred):
-    """Implements Smooth-L1 loss.
-    y_true and y_pred are typically: [N, 4], but could be any shape.
-    """
-    diff = K.abs(y_true - y_pred)
-    less_than_one = K.cast(K.less(diff, 1.0), "float32")
-    loss = (less_than_one * 0.5 * diff**2) + (1 - less_than_one) * (diff - 0.5)
-    return loss
-
-def orientation_loss_graph(target_orientations, target_class_ids, pred_orientation):
+def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, pred_res):
     """Loss for Mask R-CNN orientation regression.
     """
     # Remove batch dimension for simplicity
     target_class_ids = K.reshape(target_class_ids, (-1,))
     target_orientations = K.reshape(target_orientations, (-1, 3))
-    pred_orientation = K.reshape(pred_orientation, (-1, 24))
+    pred_logits = K.reshape(pred_logits, (-1, 12))
+    pred_res = K.reshape(pred_res, (-1, 12))
 
     # Only positive ROIs contribute to the loss.
     positive_roi_ix = tf.where(target_class_ids > 0)[:, 0]
     # Gather the rois that contribute to the loss
     target_orientations = tf.gather(target_orientations, positive_roi_ix)
-    pred_orientation = tf.gather(pred_orientation, positive_roi_ix)
+    pred_logits = tf.gather(pred_logits, positive_roi_ix)
+    pred_res = tf.gather(pred_res, positive_roi_ix)
 
     target_orientations = get_transformed_orientations(target_orientations)
 
     # Iterate over each of the bins
     losses_list = []
-    pred_class_logits = pred_orientation[:, 0:6]
-    pred_res = pred_orientation[:, 12:24]
     for i in range(0, 6):
         # target_orientation bin: [prob, sin, cos]
         target_bin_prob = target_orientations[:, i * 3]
         # target_orientation bin: [neg_logit, pos_logit, pos, neg, sin, cos]
-        pred_bin_logits = pred_class_logits[:, i]
+        logits = pred_logits[:, i*2: i*2 + 2]
 
-        class_loss = K.binary_crossentropy(target=target_bin_prob,
-                                             output=pred_bin_logits,
-                                             from_logits=True)
+        class_loss = K.sparse_categorical_crossentropy(target=target_bin_prob,
+                                                       output=logits,
+                                                       from_logits=True)
 
         target_bin_res = target_orientations[:, i * 3 + 1: i * 3 + 3]
         pred_bin_res = pred_res[:, i * 2: i * 2 + 2]
         l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
 
         losses_list.append(K.mean(class_loss + l2_loss * target_bin_prob))
-    '''
-    for i in range(0, 6):
-        # target_orientation bin: [prob, sin, cos]
-        target_bin_prob = target_orientations[:, i*3]
-        # target_orientation bin: [neg_logit, pos_logit, pos, neg, sin, cos]
-        pred_bin_logits = pred_orientation[:, i*6: i*6 + 2]
 
-        softmax_loss = K.sparse_categorical_crossentropy(target=target_bin_prob,
-                                                     output=pred_bin_logits,
-                                                     from_logits=True)
-
-        target_bin_res = target_orientations[:, i*3 + 1: i*3 + 3]
-        pred_bin_res = pred_orientation[:, i*6 + 4: i*6 + 6]
-        l1_loss = smooth_l1_loss(target_bin_res, pred_bin_res)
-        l1_loss = (l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob
-
-        losses.append(K.mean(softmax_loss + l1_loss))
-    '''
     loss = tf.math.add_n(losses_list) / 6
 
     return loss
@@ -220,24 +206,29 @@ def calculate_angle(sin, cos, res):
     angle = (np.arctan2(sin, cos) * deg2rad) + res
     return angle
 
-def unmold_orientations(detections, mrcnn_orientations):
+def unmold_orientations(detections, mrcnn_or_prob, mrcnn_or_res):
     # How many detections do we have?
     # Detections array is padded with zeros. Find the first class_id == 0.
     zero_ix = np.where(detections[:, 4] == 0)[0]
     N = zero_ix[0] if zero_ix.shape[0] > 0 else detections.shape[0]
 
+    if N <= 0:
+        return []
+
     res_angle = (-90, 90)
 
-    orientations = mrcnn_orientations[np.arange(N), :]
+    or_prob = mrcnn_or_prob[np.arange(N), :]
+    or_res = mrcnn_or_res[np.arange(N), :]
     angles = []
     for i in range(N):
         bins = []
         for j in range(0,6):
-            bin = orientations[i, j*6 + 2:j*6 + 6]
-            included = bin[1]
+            #bin = orientations[i, j*6 + 2:j*6 + 6]
+            included = or_prob[i, j]
             angle = np.nan
-            if included > 0.75:
-                angle = calculate_angle(bin[2], bin[3], res_angle[j % 2])
+            res = or_res[i, j * 2: j *2 + 2]
+            if included > 0.5:
+                angle = calculate_angle(res[0], res[1], res_angle[j % 2])
             bins.append(angle)
         bins = np.hstack(bins)
         angles.append(bins)

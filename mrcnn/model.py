@@ -2341,7 +2341,7 @@ class MaskRCNN():
                                               train_bn=config.TRAIN_BN)
 
             if config.ORIENTATION:
-                orientations = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
+                or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
                                                                  config.POOL_SIZE, train_bn=config.TRAIN_BN)
 
@@ -2361,7 +2361,7 @@ class MaskRCNN():
                 [target_mask, target_class_ids, mrcnn_mask])
             if config.ORIENTATION:
                 orientation_loss = KL.Lambda(lambda x: orientation.orientation_loss_graph(*x), name="mrcnn_orientation_loss")(
-                    [target_orientation, target_class_ids, orientations])
+                    [target_orientation, target_class_ids, or_logits, or_res])
 
             # Model
             if not config.ORIENTATION:
@@ -2381,8 +2381,8 @@ class MaskRCNN():
                 if not config.USE_RPN_ROIS:
                     inputs.append(input_rois)
                 outputs = [rpn_class_logits, rpn_class, rpn_bbox,
-                           mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask, orientations,
-                           rpn_rois, output_rois,
+                           mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask,
+                           or_probs, or_res, rpn_rois, output_rois,
                            rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, mask_loss, orientation_loss]
 
             model = KM.Model(inputs, outputs, name='mask_rcnn')
@@ -2411,7 +2411,7 @@ class MaskRCNN():
                                               train_bn=config.TRAIN_BN)
 
             if config.ORIENTATION:
-                orientations = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
+                or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
                                                                  config.POOL_SIZE, train_bn=config.TRAIN_BN)
 
@@ -2419,7 +2419,7 @@ class MaskRCNN():
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox]
 
             if config.ORIENTATION:
-                outputs.append(orientations)
+                outputs.extend([or_probs, or_res])
 
             model = KM.Model([input_image, input_image_meta, input_anchors],
                              outputs,
@@ -2959,7 +2959,7 @@ class MaskRCNN():
             detections, _, _, mrcnn_mask, _, _, _ =\
                 self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
         else:
-            detections, _, _, mrcnn_mask, _, _, _, orientations = \
+            detections, _, _, mrcnn_mask, _, _, _, or_prob, or_res = \
                 self.keras_model.predict([molded_images, image_metas, anchors], verbose=0)
         # Process detections
         results = []
@@ -2977,7 +2977,7 @@ class MaskRCNN():
             }
 
             if config.ORIENTATION:
-                final_orientations = orientation.unmold_orientations(detections[i], orientations[i])
+                final_orientations = orientation.unmold_orientations(detections[i], or_prob[i], or_res[i])
                 result['orientations'] = final_orientations
 
             results.append(result)

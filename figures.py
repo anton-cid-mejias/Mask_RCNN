@@ -113,9 +113,9 @@ class FiguresConfig(Config):
     MAX_GT_INSTANCES = 200
 
     # Max number of final detections per image
-    DETECTION_MAX_INSTANCES = 10#300
+    DETECTION_MAX_INSTANCES = 300
 
-    LEARNING_RATE = 0.0005
+    LEARNING_RATE = 0.001
 
     # Number of ROIs per image to feed to classifier/mask heads
     # The Mask RCNN paper uses 512 but often the RPN doesn't generate
