@@ -70,6 +70,16 @@ def random_colors(N, bright=True):
     random.shuffle(colors)
     return colors
 
+def get_colors(N, bright=True):
+    """
+    Generate colors.
+    To get visually distinct colors, generate them in HSV space then
+    convert to RGB.
+    """
+    brightness = 1.0 if bright else 0.7
+    hsv = [(i / N, 1, brightness) for i in range(N)]
+    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+    return colors
 
 def apply_mask(image, mask, color, alpha=0.5):
     """Apply the given mask to the image.
@@ -510,7 +520,7 @@ def display_weight_stats(model):
     display_table(table)
 
 def save_image(image, image_name, boxes, masks, orientations, class_ids, scores, class_names, generator, image_id,
-               filter_classs_names=None, save_dir=None, mode=0):
+               filter_classs_names=None, save_dir=None, mode=0, target_orientations=None):
     """
         image: image array
         image_name: image name
@@ -611,12 +621,100 @@ def save_image(image, image_name, boxes, masks, orientations, class_ids, scores,
         if orientations is not None:
             orientation = orientations[value]
             font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
-            draw.text((x1, y1), "%.2f %.2f %.2f %.2f %.2f %.2f"
-                      % (orientation[0], orientation[1], orientation[2], orientation[3],
-                         orientation[4], orientation[5]), color, font)
+            draw.text((x1, y1), "%.2f %.2f %.2f"
+                      % (orientation[0], orientation[1], orientation[2]),
+                         color, font, stroke_width=1, stroke_fill=(0,0,0))
             generator.add_raw_annotation(image_id, label, bbox, masks[value], orientation)
         else:
             generator.add_raw_annotation(image_id, label, bbox, masks[value], [])
 
 
     masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
+
+def show_results(image, image_name, boxes, masks, orientations, class_ids, scores, class_names, generator, image_id,
+                 gt_orientations, save_dir=None, mode=0):
+    """
+        image: image array
+        image_name: image name
+        boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+        masks: [num_instances, height, width]
+        class_ids: [num_instances]
+        scores: confidence scores for each box
+        class_names: list of class names of the dataset
+        scores_thresh: (optional) threshold of confidence scores
+        save_dir: (optional) the path to store image
+        mode: (optional) select the result which you want
+                mode = 0, save image with bbox, class_name, score and mask;
+                mode = 1, save image with mask;
+                mode = 2, save image with bbox, mask, orientation;
+                mode = 3, save image with bbox, mask, orientation and real orientation;
+    """
+    mode_list = [0, 1, 2, 3]
+    assert mode in mode_list, "mode's value should in mode_list %s" % str(mode_list)
+
+    if save_dir is None:
+        save_dir = os.path.join(os.getcwd(), "output")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+    # Number of instances
+    N = boxes.shape[0]
+
+    # Final image
+    masked_image = image.astype(np.uint32).copy()
+
+    # If there is no instances save the image as received
+    if not N:
+        print("\n*** No instances in image %s to draw *** \n" % (image_name))
+        masked_image = Image.fromarray(masked_image)
+        masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
+        return
+    # Check that the dimensions of the data received is correct
+    else:
+        assert boxes.shape[0] == len(masks) == class_ids.shape[0]
+
+    colors = get_colors(len(class_names))
+
+    fig, ax = plt.subplots(figsize=(30, 30))
+
+    # For each detected instance
+    for index, value in enumerate(class_ids):
+        class_id = value
+        mask = masks[index]
+        box = boxes[index]
+        score = scores[index]
+        label = class_names[class_id]
+        orientation = orientations[index]
+        color = colors[class_id]
+
+        y1, x1, y2, x2 = box
+        if mode != 1:
+            p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
+                                  alpha=0.7, linestyle="dashed",
+                                  edgecolor=color, facecolor='none')
+            ax.add_patch(p)
+
+        # Label
+        if mode == 0:
+            caption = "{} {:.3f}".format(label, score) if score else label
+            ax.text(x1, y1 + 8, caption,
+                    color='w', size=11, backgroundcolor="none")
+
+        # Mask
+        masked_image = apply_compressed_mask(masked_image, mask, box, color)
+
+        if orientations is not None:
+            if (mode == 2) or (mode == 3):
+                or_text = "x: %.1f, y: %.1f, z: %.1f" % (orientation[0], orientation[1], orientation[2])
+                ax.text(x1 - 4, y1 + 8, or_text, color='black', size=8, bbox=dict(facecolor='w', alpha=.9))
+            if mode == 3:
+                gt_orientation = gt_orientations[index]
+                or_gt_text = "GT x: %.1f, y: %.1f, z: %.1f" % (gt_orientation[0], gt_orientation[1], gt_orientation[2])
+                ax.text(x1 - 4, y1 + 25, or_gt_text, color='black', size=8, bbox=dict(facecolor='w', alpha=.9))
+
+            generator.add_raw_annotation(image_id, label, box.tolist(), mask, orientation)
+        else:
+            generator.add_raw_annotation(image_id, label, box, mask, [])
+
+    ax.imshow(masked_image)
+    plt.savefig(os.path.join(save_dir, '%s.png' % (image_name)), bbox_inches='tight')

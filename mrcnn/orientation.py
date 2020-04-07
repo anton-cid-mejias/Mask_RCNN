@@ -3,7 +3,6 @@ import keras.backend as K
 import math
 import tensorflow as tf
 import numpy as np
-from keras import regularizers
 from keras import losses
 
 from mrcnn import model
@@ -33,31 +32,6 @@ def bin_block(input_tensor, angle_number, bin_number, train_bn):
     bin_res = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res')(x)
 
     return bin_logits, bin_prob, bin_res
-
-# Block that creates the graph which results in the
-# probability of each bin and its residual angle values
-def bin_block_2(input_tensor, train_bn):
-    # Probability
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_class_dense_1')(input_tensor)
-    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_bin_class_bn1')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_class_2')(x)
-    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_class_bn2')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
-    bin_logits = KL.TimeDistributed(KL.Dense(6), name= 'mrcnn_bin_class_logits')(x)
-    bin_prob = KL.TimeDistributed(KL.Activation("sigmoid"),
-                                    name= "mrcnn_bin_class_prob")(bin_logits)
-
-    # Residual angle
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_res_dense_1')(input_tensor)
-    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_res_bn1')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
-    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_bin_res_2')(x)
-    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_bin_res_bn2')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
-    bin_res = KL.TimeDistributed(KL.Dense(12, kernel_regularizer=regularizers.l2(0.001)), name='mrcnn_bin_res_values')(x)
-
-    return KL.Concatenate(axis=2)([bin_logits, bin_prob, bin_res])
 
 
 def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
@@ -126,13 +100,14 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
 
     return logits, probs, res
 
+
 # 2 Bins
 # First [-210, 30], middle point -90
 # Second [-30, 210], middle point 90
 def get_transformed_orientations(orientations):
     first_bin = tf.constant([-210., 30., -90.])
     second_bin = tf.constant([-30., 210., 90.])
-    deg2rad = math.pi / 180
+    deg2rad = tf.constant(math.pi / 180)
 
     r = []
     for i in range(0, K.int_shape(orientations)[1]):
@@ -160,6 +135,7 @@ def get_transformed_orientations(orientations):
         r.append(tf.stack([prob1, sin1, cos1, prob2, sin2, cos2], axis=1))
 
     return tf.concat(r, axis=1)
+
 
 def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, pred_res):
     """Loss for Mask R-CNN orientation regression.
@@ -193,18 +169,20 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, p
 
         target_bin_res = target_orientations[:, i * 3 + 1: i * 3 + 3]
         pred_bin_res = pred_res[:, i * 2: i * 2 + 2]
-        l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
+        #l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
+        l1_loss = losses.mean_absolute_error(target_bin_res, pred_bin_res)
 
-        losses_list.append(K.mean(class_loss + l2_loss * target_bin_prob))
+        losses_list.append(K.mean(class_loss + l1_loss * target_bin_prob))
 
-    loss = tf.math.add_n(losses_list) / 6
+    loss = tf.math.add_n(losses_list) / 3
 
     return loss
 
-def calculate_angle(sin, cos, res):
-    deg2rad = 180 / math.pi
-    angle = (np.arctan2(sin, cos) * deg2rad) + res
+
+def calculate_angle(sin, cos, middle):
+    angle = math.degrees(np.arctan2(sin, cos)) + middle
     return angle
+
 
 def unmold_orientations(detections, mrcnn_or_prob, mrcnn_or_res):
     # How many detections do we have?
@@ -215,25 +193,29 @@ def unmold_orientations(detections, mrcnn_or_prob, mrcnn_or_res):
     if N <= 0:
         return []
 
-    res_angle = (-90, 90)
+    middle_angle = (-90, 90)
 
     or_prob = mrcnn_or_prob[np.arange(N), :]
     or_res = mrcnn_or_res[np.arange(N), :]
     angles = []
     for i in range(N):
         bins = []
-        for j in range(0,6):
-            #bin = orientations[i, j*6 + 2:j*6 + 6]
-            included = or_prob[i, j]
-            angle = np.nan
-            res = or_res[i, j * 2: j *2 + 2]
-            if included > 0.5:
-                angle = calculate_angle(res[0], res[1], res_angle[j % 2])
+        for j in range(0,3):
+            included_1 = or_prob[i, j*4 + 1]
+            included_2 = or_prob[i, j*4 + 3]
+            res = or_res[i, j * 4: j *4 + 4]
+            # First bin
+            if included_1 > included_2:
+                angle = calculate_angle(res[0], res[1], middle_angle[0])
+            # Second bin
+            else:
+                angle = calculate_angle(res[2], res[3], middle_angle[1])
             bins.append(angle)
         bins = np.hstack(bins)
         angles.append(bins)
     angles = np.vstack(angles).tolist()
     return angles
+
 
 def unmold_orientation_test(orientation):
     res_angle = (-90, 90)
@@ -249,9 +231,10 @@ def unmold_orientation_test(orientation):
     bins = np.hstack(bins)
     return bins
 
+
 # Test
 if __name__=="__main__":
-    angles = tf.reshape(tf.constant([180., 180., 180.]), (1, 3))
+    angles = tf.reshape(tf.constant([-209., 25., 30.]), (1, 3))
     transformed = get_transformed_orientations(angles)
     sess = tf.compat.v1.Session()
     transformed = sess.run(transformed)

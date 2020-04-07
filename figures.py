@@ -56,7 +56,7 @@ ROOT_DIR = os.path.abspath(".")#("../../")
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
 from mrcnn import model as modellib, utils
-from mrcnn.visualize import save_image
+from mrcnn.visualize import save_image, show_results
 from mrcnn.annotator import AnnotationsGenerator
 
 # Path to trained weights file
@@ -401,7 +401,13 @@ def evaluate(model):
     gen.add_categories(dataset.class_names)
 
     for image_id in dataset.image_ids:
-        image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(dataset, config, image_id, use_mini_mask=False)
+        if config.ORIENTATION:
+            image, image_meta, gt_class_id, gt_bbox, gt_mask, orientations = modellib.load_image_gt_or(dataset, config,
+                                                                                      image_id, use_mini_mask=False,
+                                                                                      orientation=True)
+        else:
+            image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(dataset, config, image_id,
+                                                                                      use_mini_mask=False)
         info = dataset.image_info[image_id]
         print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
                                                dataset.image_reference(image_id)))
@@ -414,11 +420,11 @@ def evaluate(model):
         filename = info["source"] + "_" + str(image_id)
 
         if config.ORIENTATION:
-            save_image(image, filename, r['rois'], r['masks'], r['orientations'], r['class_ids'], r['scores'],
-                      dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
+            show_results(image, filename, r['rois'], r['masks'], r['orientations'], r['class_ids'], r['scores'],
+                      dataset.class_names, gen, image_id, orientations, save_dir="../results/val", mode=3)
         else:
-            save_image(image, filename, r['rois'], r['masks'], None, r['class_ids'], r['scores'],
-                       dataset.class_names, gen, image_id, save_dir="../results/val", mode=4)
+            show_results(image, filename, r['rois'], r['masks'], None, r['class_ids'], r['scores'],
+                       dataset.class_names, gen, image_id, None, save_dir="../results/val", mode=0)
 
     # Save the results in an annotation file following the COCO dataset structure
     gen.save_json("../results/val" + "/evaluation_annotations.json", pretty=True)
