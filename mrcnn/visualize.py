@@ -632,7 +632,7 @@ def save_image(image, image_name, boxes, masks, orientations, class_ids, scores,
     masked_image.save(os.path.join(save_dir, '%s.png' % (image_name)), "PNG")
 
 def show_results(image, image_name, boxes, masks, orientations, class_ids, scores, class_names, generator, image_id,
-                 gt_orientations, save_dir=None, mode=0):
+                 gt_bboxes, gt_orientations, save_dir=None, mode=0):
     """
         image: image array
         image_name: image name
@@ -709,6 +709,8 @@ def show_results(image, image_name, boxes, masks, orientations, class_ids, score
                 ax.text(x1 - 4, y1 + 8, or_text, color='black', size=8, bbox=dict(facecolor='w', alpha=.9))
             if mode == 3:
                 gt_orientation = gt_orientations[index]
+                gt_bbox = gt_bboxes[index]
+                y1, x1, _, _ = gt_bbox
                 or_gt_text = "GT x: %.1f, y: %.1f, z: %.1f" % (gt_orientation[0], gt_orientation[1], gt_orientation[2])
                 ax.text(x1 - 4, y1 + 25, or_gt_text, color='black', size=8, bbox=dict(facecolor='w', alpha=.9))
 
@@ -718,3 +720,4 @@ def show_results(image, image_name, boxes, masks, orientations, class_ids, score
 
     ax.imshow(masked_image)
     plt.savefig(os.path.join(save_dir, '%s.png' % (image_name)), bbox_inches='tight')
+    plt.close(fig=fig)

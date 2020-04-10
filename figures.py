@@ -402,7 +402,7 @@ def evaluate(model):
 
     for image_id in dataset.image_ids:
         if config.ORIENTATION:
-            image, image_meta, gt_class_id, gt_bbox, gt_mask, orientations = modellib.load_image_gt_or(dataset, config,
+            image, image_meta, gt_class_id, gt_bbox, gt_mask, gt_orientations = modellib.load_image_gt_or(dataset, config,
                                                                                       image_id, use_mini_mask=False,
                                                                                       orientation=True)
         else:
@@ -421,10 +421,10 @@ def evaluate(model):
 
         if config.ORIENTATION:
             show_results(image, filename, r['rois'], r['masks'], r['orientations'], r['class_ids'], r['scores'],
-                      dataset.class_names, gen, image_id, orientations, save_dir="../results/val", mode=3)
+                      dataset.class_names, gen, image_id, gt_bbox, gt_orientations, save_dir="../results/val", mode=3)
         else:
             show_results(image, filename, r['rois'], r['masks'], None, r['class_ids'], r['scores'],
-                       dataset.class_names, gen, image_id, None, save_dir="../results/val", mode=0)
+                       dataset.class_names, gen, image_id, gt_bbox, None, save_dir="../results/val", mode=0)
 
     # Save the results in an annotation file following the COCO dataset structure
     gen.save_json("../results/val" + "/evaluation_annotations.json", pretty=True)
