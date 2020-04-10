@@ -115,7 +115,7 @@ class FiguresConfig(Config):
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 300
 
-    LEARNING_RATE = 0.0005
+    LEARNING_RATE = 0.0002
 
     # Number of ROIs per image to feed to classifier/mask heads
     # The Mask RCNN paper uses 512 but often the RPN doesn't generate
@@ -386,7 +386,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=20,
+                epochs=35,
                 augmentation=None,
                 layers='heads')
 
