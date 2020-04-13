@@ -115,7 +115,7 @@ class FiguresConfig(Config):
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 300
 
-    LEARNING_RATE = 0.0001
+    LEARNING_RATE = 0.0002
 
 
     # Number of ROIs per image to feed to classifier/mask heads
