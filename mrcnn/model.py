@@ -2977,7 +2977,7 @@ class MaskRCNN():
             }
 
             if config.ORIENTATION:
-                final_orientations = orientation.unmold_orientations(detections[i], or_prob[i], or_res[i])
+                final_orientations = orientation.unmold_orientations_4d(detections[i], or_prob[i], or_res[i])
                 result['orientations'] = final_orientations
 
             results.append(result)

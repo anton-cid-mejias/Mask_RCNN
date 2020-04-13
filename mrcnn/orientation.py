@@ -84,6 +84,64 @@ def angle_block(input_tensor, angle_number, train_bn):
 
     return bin_logits, bin_prob, bin_res
 
+def full_block(input_tensor, train_bn):
+    # Probability
+    x = KL.TimeDistributed(KL.Dense(512), name='mrcnn_class_or_1')(input_tensor)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_class_or_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_class_or_2')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_class_or_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(24), name='mrcnn_class_or_3')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_class_or_bn3')(x, training=train_bn)
+    # 4 bins for each angle
+    # Bin 1: [-210º, -60º] -> middle = -135º
+    # Bin 2: [-120º, 30º] -> middle = -45º
+    # Bin 2: [-30º, 120º] -> middle = 45º
+    # Bin 2: [60º, 210º] -> middle = 135º
+    # 2 outputs for each bin softmax(included in this bin?)
+    bin_logits_list = []
+    bin_probs_list = []
+    for angle in range(0, 3):
+        for bin in range(0, 4):
+            name = "%i_%i" % (angle, bin)
+            position = angle * 8 + bin * 2
+            bin_logits = KL.Lambda(lambda x : x[:, :, position:position + 2])(x)
+            #bin_logits = KL.TimeDistributed(KL.Dense(2), name="mrcnn_" + name + '_prob')(bin_logits)
+            bin_prob = KL.TimeDistributed(KL.Activation("softmax"),
+                                            name= "mrcnn_" + name + "_prob")(bin_logits)
+            bin_logits_list.append(bin_logits)
+            bin_probs_list.append(bin_prob)
+
+    bin_logits = KL.Concatenate(axis=2)(bin_logits_list)
+    bin_prob = KL.Concatenate(axis=2)(bin_probs_list)
+
+    # Residual angle
+    x = KL.TimeDistributed(KL.Dense(512), name='mrcnn_res1')(input_tensor)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_res_bn1')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_res2')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_res_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    x = KL.TimeDistributed(KL.Dense(24), name='mrcnn_res3')(x)
+    x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_res_bn3')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    # 4 bins for aech angle
+    # 2 outputs for each bin (sin, cos)
+    bin_res_list = []
+    for angle in range(0, 3):
+        for bin in range(0, 4):
+            name = "%i_%i" % (angle, bin)
+            position = angle * 8 + bin * 2
+            bin_res = KL.Lambda(lambda x : x[:, :, position:position + 2])(x)
+            bin_res = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res')(bin_res)
+            bin_res = KL.Lambda(lambda x: K.l2_normalize(x, axis=2))(bin_res)
+            bin_res_list.append(bin_res)
+
+    bin_res = KL.Concatenate(axis=2)(bin_res_list)
+
+    return bin_logits, bin_prob, bin_res
+
 def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
                           mrcnn_bbox, image_meta,
                          pool_size, train_bn=True):
@@ -134,9 +192,9 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     mrcnn_bbox = KL.Reshape((s[1], s[2] * s[3]))(mrcnn_bbox)
     shared = KL.Concatenate(axis=2)([shared, mrcnn_bbox])
 
-    logits = []
-    probs = []
-    res = []
+    #logits = []
+    #probs = []
+    #res = []
     '''
     for angle in range(0,3):
         for bin in range(0,2):
@@ -144,6 +202,7 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
             logits.append(bin_logits)
             probs.append(bin_prob)
             res.append(bin_res)
+    '''
     '''
     for angle in range(0,3):
         bin_logits, bin_prob, bin_res = angle_block(shared, angle, train_bn)
@@ -154,6 +213,8 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     logits = KL.Concatenate(axis=2)(logits)
     probs = KL.Concatenate(axis=2)(probs)
     res = KL.Concatenate(axis=2)(res)
+    '''
+    logits, probs, res =  full_block(shared, train_bn)
 
     return logits, probs, res
 
@@ -263,10 +324,10 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, p
 
         target_bin_res = target_orientations[:, i * 3 + 1: i * 3 + 3]
         pred_bin_res = pred_res[:, i * 2: i * 2 + 2]
-        #l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
-        l1_loss = losses.mean_absolute_error(target_bin_res, pred_bin_res)
+        l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
+        #l1_loss = losses.mean_absolute_error(target_bin_res, pred_bin_res)
 
-        losses_list.append(K.mean(class_loss + l1_loss * target_bin_prob))
+        losses_list.append(K.mean(class_loss + l2_loss * target_bin_prob))
 
     loss = tf.math.add_n(losses_list) / 3
 
@@ -326,7 +387,7 @@ def unmold_orientations_4d(detections, mrcnn_or_prob, mrcnn_or_res):
     angles = []
     for i in range(N):
         bins = []
-        for j in range(0,6):
+        for j in range(0,3):
             included_1 = or_prob[i, j*8 + 1]
             included_2 = or_prob[i, j*8 + 3]
             included_3 = or_prob[i, j*8 + 5]
