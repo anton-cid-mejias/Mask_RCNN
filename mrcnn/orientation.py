@@ -41,7 +41,7 @@ def angle_block(input_tensor, angle_number, train_bn):
     x = KL.Activation('relu')(x)
     x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_class_2')(x)
     x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_class_bn2')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
+    x = KL.Activation('linear')(x)
     # 4 bins for each angle
     # Bin 1: [-210º, -60º] -> middle = -135º
     # Bin 2: [-120º, 30º] -> middle = -45º
@@ -69,7 +69,7 @@ def angle_block(input_tensor, angle_number, train_bn):
     x = KL.Activation('relu')(x)
     x = KL.TimeDistributed(KL.Dense(256), name='mrcnn_' + name + '_res2')(x)
     x = KL.TimeDistributed(KL.BatchNormalization(), name='mrcnn_' + name + '_res_bn2')(x, training=train_bn)
-    x = KL.Activation('relu')(x)
+    x = KL.Activation('linear')(x)
     # 4 bins for aech angle
     # 2 outputs for each bin (sin, cos)
     bin_res_1 = KL.TimeDistributed(KL.Dense(2), name= "mrcnn_" + name + '_res_1')(x)
@@ -167,16 +167,31 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     x = model.PyramidROIAlign([pool_size, pool_size],
                         name="roi_align_orientation")([rois, image_meta] + feature_maps)
 
-    # Two 1024 FC layers (implemented with Conv2D for consistency)
-    # First layer
-    x = KL.TimeDistributed(KL.Conv2D(1024, (pool_size, pool_size), padding="valid"),
+    x = KL.TimeDistributed(KL.Conv2D(256, (5, 5), padding="valid"),
                            name="mrcnn_orientation_conv1")(x)
     x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_orientation_bn1')(x, training=train_bn)
     x = KL.Activation('relu')(x)
-    # Second layer
-    x = KL.TimeDistributed(KL.Conv2D(1024, (1, 1)),
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="valid"),
                            name="mrcnn_orientation_conv2")(x)
     x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_orientation_bn2')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+
+    x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="valid"),
+                           name="mrcnn_orientation_conv3")(x)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_orientation_bn3')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+
+    # Two 1024 FC layers (implemented with Conv2D for consistency)
+    # First layer
+    x = KL.TimeDistributed(KL.Conv2D(1024, (6, 6), padding="valid"),
+                           name="mrcnn_orientation_conv4")(x)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_orientation_bn4')(x, training=train_bn)
+    x = KL.Activation('relu')(x)
+    # Second layer
+    x = KL.TimeDistributed(KL.Conv2D(1024, (1, 1)),
+                           name="mrcnn_orientation_conv5")(x)
+    x = KL.TimeDistributed(model.BatchNorm(), name='mrcnn_orientation_bn5')(x, training=train_bn)
     x = KL.Activation('relu')(x)
 
     # Squeezed feature maps
@@ -192,9 +207,9 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     mrcnn_bbox = KL.Reshape((s[1], s[2] * s[3]))(mrcnn_bbox)
     shared = KL.Concatenate(axis=2)([shared, mrcnn_bbox])
 
-    #logits = []
-    #probs = []
-    #res = []
+    logits = []
+    probs = []
+    res = []
     '''
     for angle in range(0,3):
         for bin in range(0,2):
@@ -203,7 +218,7 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
             probs.append(bin_prob)
             res.append(bin_res)
     '''
-    '''
+
     for angle in range(0,3):
         bin_logits, bin_prob, bin_res = angle_block(shared, angle, train_bn)
         logits.append(bin_logits)
@@ -213,8 +228,8 @@ def fpn_orientation_graph(rois, feature_maps, mrcnn_probs,
     logits = KL.Concatenate(axis=2)(logits)
     probs = KL.Concatenate(axis=2)(probs)
     res = KL.Concatenate(axis=2)(res)
-    '''
-    logits, probs, res =  full_block(shared, train_bn)
+
+    #logits, probs, res =  full_block(shared, train_bn)
 
     return logits, probs, res
 
@@ -292,6 +307,15 @@ def get_transformed_orientations_4d(orientations):
 
     return tf.concat(r, axis=1)
 
+def smooth_l1_loss(y_true, y_pred):
+    """Implements Smooth-L1 loss.
+    y_true and y_pred are typically: [N, 4], but could be any shape.
+    """
+    diff = K.abs(y_true - y_pred)
+    less_than_one = K.cast(K.less(diff, 1.0), "float32")
+    loss = (less_than_one * 0.5 * diff**2) + (1 - less_than_one) * (diff - 0.5)
+    return loss
+
 def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, pred_res):
     """Loss for Mask R-CNN orientation regression.
     """
@@ -324,10 +348,11 @@ def orientation_loss_graph(target_orientations, target_class_ids, pred_logits, p
 
         target_bin_res = target_orientations[:, i * 3 + 1: i * 3 + 3]
         pred_bin_res = pred_res[:, i * 2: i * 2 + 2]
-        l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
-        #l1_loss = losses.mean_absolute_error(target_bin_res, pred_bin_res)
+        # Change to smooth l1 loss
+        #l2_loss = losses.mean_squared_error(target_bin_res, pred_bin_res)
+        l1_loss = smooth_l1_loss(target_bin_res, pred_bin_res)
 
-        losses_list.append(K.mean(class_loss + l2_loss * target_bin_prob))
+        losses_list.append(K.mean(class_loss + (l1_loss[:, 0] + l1_loss[:, 1]) * target_bin_prob))
 
     loss = tf.math.add_n(losses_list) / 3
 

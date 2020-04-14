@@ -2343,7 +2343,7 @@ class MaskRCNN():
             if config.ORIENTATION:
                 or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
-                                                                 config.POOL_SIZE, train_bn=config.TRAIN_BN)
+                                                                 config.MASK_POOL_SIZE, train_bn=config.TRAIN_BN)
 
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
