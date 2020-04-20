@@ -115,7 +115,7 @@ class FiguresConfig(Config):
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 300
 
-    LEARNING_RATE = 0.0005
+    LEARNING_RATE = 0.0001
 
 
     # Number of ROIs per image to feed to classifier/mask heads
@@ -131,7 +131,7 @@ class FiguresConfig(Config):
     MINI_MASK_SHAPE = (56, 56)
 
     #MEAN_PIXEL = np.array([12.57, 12.57, 12.57])
-    ORIENTATION = True
+    ORIENTATION = False
 
 
 ############################################################

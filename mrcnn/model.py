@@ -2413,7 +2413,7 @@ class MaskRCNN():
             if config.ORIENTATION:
                 or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
-                                                                 config.POOL_SIZE, train_bn=config.TRAIN_BN)
+                                                                 config.MASK_POOL_SIZE, train_bn=config.TRAIN_BN)
 
             outputs = [detections, mrcnn_class, mrcnn_bbox,
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox]
