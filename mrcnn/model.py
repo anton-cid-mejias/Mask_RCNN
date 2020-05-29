@@ -2722,7 +2722,7 @@ class MaskRCNN():
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
             keras.callbacks.LearningRateScheduler(scheduler),
-            keras.callbacks.CSVLogger("logs/model_history_log.csv", append=True)
+            keras.callbacks.CSVLogger(os.path.join(self.log_dir, "model_history_log.csv"), append=True)
         ]
 
         # Add custom callbacks to the list
