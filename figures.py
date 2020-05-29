@@ -93,14 +93,14 @@ class FiguresConfig(Config):
     NUM_CLASSES = 1 + 1  # COCO has 80 classes
 
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
+    STEPS_PER_EPOCH = 50
 
     VALIDATION_STEPS = 5
 
-    IMAGE_MIN_DIM = 640
-    IMAGE_MAX_DIM = 640
+    IMAGE_MIN_DIM = 960#640
+    IMAGE_MAX_DIM = 960#640
 
-    RPN_ANCHOR_SCALES = (16, 32, 64, 128, 256)
+    RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)#(16, 32, 64, 128, 256)
 
     # Non-max suppression threshold to filter RPN proposals.
     # You can increase this during training to generate more proposals.
@@ -115,7 +115,7 @@ class FiguresConfig(Config):
     # Max number of final detections per image
     DETECTION_MAX_INSTANCES = 300
 
-    LEARNING_RATE = 0.0001
+    LEARNING_RATE = 0.0005
 
 
     # Number of ROIs per image to feed to classifier/mask heads
@@ -123,7 +123,11 @@ class FiguresConfig(Config):
     # enough positive proposals to fill this and keep a positive:negative
     # ratio of 1:3. You can increase the number of proposals by adjusting
     # the RPN NMS threshold.
-    TRAIN_ROIS_PER_IMAGE = 256
+    TRAIN_ROIS_PER_IMAGE = 256 # 512
+
+    RPN_TRAIN_ANCHORS_PER_IMAGE = 256 # 800
+    PRE_NMS_LIMIT = 6000 # 12000
+    POST_NMS_ROIS_TRAINING = 2000 # 6000
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
@@ -387,8 +391,8 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=35,
-                augmentation=None,
+                epochs=100,
+                augmentation=augmentation,
                 layers='heads')
 
 def evaluate(model):
@@ -438,7 +442,7 @@ def detect(model, image_dir):
     files = glob.glob(image_dir + "/*")
 
     dataset = FiguresDataset()
-    dataset.load_figures(args.validation_dataset, "val_annotations.json")
+ea    dataset.load_figures(args.validation_dataset, "val_annotations.json")
     dataset.prepare()
 
     gen = AnnotationsGenerator("Dataset detection results")
@@ -460,8 +464,9 @@ def detect(model, image_dir):
             results = model.detect([image], config, verbose=1)
             r = results[0]
             # Save image as pred_x.png and save annotations in COCO format
-            gen.add_image(file, image.shape[0], image.shape[1])
-            image_id = gen.get_image_id(file)
+            image_name = file.replace(image_dir, "").replace("\\", "").replace("/", "")
+            gen.add_image(image_name, image.shape[0], image.shape[1])
+            image_id = gen.get_image_id(image_name)
             filename = "pred_%i" % i
             # Save image as pred_x.png
             if config.ORIENTATION:
@@ -539,6 +544,7 @@ if __name__ == '__main__':
             RPN_NMS_THRESHOLD = 0.7
             DETECTION_MIN_CONFIDENCE = 0.9
             NUM_CLASSES = 1 + 1
+            POST_NMS_ROIS_INFERENCE = 3000
 
         config = InferenceConfig()
     config.display()

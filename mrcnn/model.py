@@ -25,6 +25,7 @@ import keras.models as KM
 
 from mrcnn import utils
 from mrcnn import orientation
+from mrcnn import orientation6d
 
 # Requires TensorFlow 1.3+ and Keras 2.0.8+.
 from distutils.version import LooseVersion
@@ -2341,9 +2342,9 @@ class MaskRCNN():
                                               train_bn=config.TRAIN_BN)
 
             if config.ORIENTATION:
-                or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
+                or_matrices, or_angles = orientation6d.fpn_orientation_graph(rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
-                                                                 config.MASK_POOL_SIZE, train_bn=config.TRAIN_BN)
+                                                                 config.POOL_SIZE, train_bn=config.TRAIN_BN)
 
             # TODO: clean up (use tf.identify if necessary)
             output_rois = KL.Lambda(lambda x: x * 1, name="output_rois")(rois)
@@ -2360,8 +2361,8 @@ class MaskRCNN():
             mask_loss = KL.Lambda(lambda x: mrcnn_mask_loss_graph(*x), name="mrcnn_mask_loss")(
                 [target_mask, target_class_ids, mrcnn_mask])
             if config.ORIENTATION:
-                orientation_loss = KL.Lambda(lambda x: orientation.orientation_loss_graph(*x), name="mrcnn_orientation_loss")(
-                    [target_orientation, target_class_ids, or_logits, or_res])
+                orientation_loss = KL.Lambda(lambda x: orientation6d.orientation_loss_graph(*x), name="mrcnn_orientation_loss")(
+                    [target_orientation, target_class_ids, or_matrices])
 
             # Model
             if not config.ORIENTATION:
@@ -2382,12 +2383,11 @@ class MaskRCNN():
                     inputs.append(input_rois)
                 outputs = [rpn_class_logits, rpn_class, rpn_bbox,
                            mrcnn_class_logits, mrcnn_class, mrcnn_bbox, mrcnn_mask,
-                           or_probs, or_res, rpn_rois, output_rois,
-                           rpn_class_loss, rpn_bbox_loss, class_loss, bbox_loss, mask_loss, orientation_loss]
+                           or_angles, rpn_rois, output_rois, rpn_class_loss,
+                           rpn_bbox_loss, class_loss, bbox_loss, mask_loss, orientation_loss]
 
             model = KM.Model(inputs, outputs, name='mask_rcnn')
         else:
-            # TODO: add orientation prediction
             # Network Heads
             # Proposal classifier and BBox regressor heads
             mrcnn_class_logits, mrcnn_class, mrcnn_bbox =\
@@ -2411,7 +2411,7 @@ class MaskRCNN():
                                               train_bn=config.TRAIN_BN)
 
             if config.ORIENTATION:
-                or_logits, or_probs, or_res = orientation.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
+                _, or_angles = orientation6d.fpn_orientation_graph(rpn_rois, mrcnn_feature_maps, mrcnn_class,
                                                                  mrcnn_bbox, input_image_meta,
                                                                  config.MASK_POOL_SIZE, train_bn=config.TRAIN_BN)
 
@@ -2419,7 +2419,7 @@ class MaskRCNN():
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox]
 
             if config.ORIENTATION:
-                outputs.extend([or_probs, or_res])
+                outputs.extend([or_angles])
 
             model = KM.Model([input_image, input_image_meta, input_anchors],
                              outputs,
@@ -2707,12 +2707,22 @@ class MaskRCNN():
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
+        def scheduler(epoch):
+            if epoch < 60:
+                return self.config.LEARNING_RATE
+            elif epoch < 80:
+                return self.config.LEARNING_RATE / 5
+            else:
+                return self.config.LEARNING_RATE * 0.1
+
         # Callbacks
         callbacks = [
             keras.callbacks.TensorBoard(log_dir=self.log_dir,
                                         histogram_freq=0, write_graph=True, write_images=False),
             keras.callbacks.ModelCheckpoint(self.checkpoint_path,
                                             verbose=0, save_weights_only=True),
+            keras.callbacks.LearningRateScheduler(scheduler),
+            keras.callbacks.CSVLogger("logs/model_history_log.csv", append=True)
         ]
 
         # Add custom callbacks to the list
