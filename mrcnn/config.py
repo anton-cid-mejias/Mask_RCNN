@@ -212,7 +212,7 @@ class Config(object):
     GRADIENT_CLIP_NORM = 5.0
 
     # Do train and inference with the orientation module
-    ORIENTATION = True
+    ORIENTATION = False
 
     def __init__(self):
         """Set values of computed attributes."""

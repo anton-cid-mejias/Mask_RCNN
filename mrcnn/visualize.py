@@ -538,8 +538,9 @@ def save_image(image, image_name, boxes, masks, orientations, class_ids, scores,
                 mode = 2 , save image with class_name,score and mask;
                 mode = 3 , save mask with black background;
                 mode = 4 , save mask with bbox and mask;
+                mode = 5 , save mask with bbox, mask and score;
     """
-    mode_list = [0, 1, 2, 3, 4]
+    mode_list = [0, 1, 2, 3, 4, 5]
     assert mode in mode_list, "mode's value should in mode_list %s" % str(mode_list)
 
     if save_dir is None:
@@ -609,11 +610,14 @@ def save_image(image, image_name, boxes, masks, orientations, class_ids, scores,
             color = tuple(colors[index])
             draw.rectangle((x1, y1, x2, y2), outline=color)
         # Label
-        if mode != 4:
+        if (mode != 4):
             #font = ImageFont.truetype('/home/antoncid/.fonts/Arial.ttf', 15)
             font = ImageFont.truetype('C:\Windows\Fonts\Arial.ttf', 15)
-            draw.text((x1, y1), "%s %f" % (label, score), color, font)
-            a = list(boxes[value].astype(int))
+            if mode == 5:
+                draw.text((x2, y1), "%f" % (score), color, font)
+            else:
+                draw.text((x2, y1), "%s %f" % (label, score), color, font)
+            #a = list(boxes[value].astype(int))
         # Add mask annotation
         width = int(x2 - x1)
         height = int(y2 - y1)
@@ -684,7 +688,8 @@ def show_results(image, image_name, boxes, masks, orientations, class_ids, score
         box = boxes[index]
         score = scores[index]
         label = class_names[class_id]
-        orientation = orientations[index]
+        if orientations is not None:
+            orientation = orientations[index]
         color = colors[class_id]
 
         y1, x1, y2, x2 = box
@@ -716,7 +721,7 @@ def show_results(image, image_name, boxes, masks, orientations, class_ids, score
 
             generator.add_raw_annotation(image_id, label, box.tolist(), mask, orientation)
         else:
-            generator.add_raw_annotation(image_id, label, box, mask, [])
+            generator.add_raw_annotation(image_id, label, box.tolist(), mask, [])
 
     ax.imshow(masked_image)
     plt.savefig(os.path.join(save_dir, '%s.png' % (image_name)), bbox_inches='tight')
