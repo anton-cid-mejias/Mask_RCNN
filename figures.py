@@ -442,7 +442,7 @@ def detect(model, image_dir):
     files = glob.glob(image_dir + "/*")
 
     dataset = FiguresDataset()
-ea    dataset.load_figures(args.validation_dataset, "val_annotations.json")
+    dataset.load_figures(args.validation_dataset, "val_annotations.json")
     dataset.prepare()
 
     gen = AnnotationsGenerator("Dataset detection results")
