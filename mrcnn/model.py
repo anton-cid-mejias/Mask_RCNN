@@ -2711,7 +2711,7 @@ class MaskRCNN():
             if epoch < 60:
                 return self.config.LEARNING_RATE
             elif epoch < 80:
-                return self.config.LEARNING_RATE / 5
+                return self.config.LEARNING_RATE * 0.1
             else:
                 return self.config.LEARNING_RATE * 0.1
 

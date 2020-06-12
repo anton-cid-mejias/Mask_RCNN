@@ -97,10 +97,10 @@ class FiguresConfig(Config):
 
     VALIDATION_STEPS = 5
 
-    IMAGE_MIN_DIM = 960#640
-    IMAGE_MAX_DIM = 960#640
+    IMAGE_MIN_DIM = 960
+    IMAGE_MAX_DIM = 960
 
-    RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)#(16, 32, 64, 128, 256)
+    RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)#(16, 32, 64, 128, 256)#
 
     # Non-max suppression threshold to filter RPN proposals.
     # You can increase this during training to generate more proposals.
@@ -113,7 +113,7 @@ class FiguresConfig(Config):
     MAX_GT_INSTANCES = 200
 
     # Max number of final detections per image
-    DETECTION_MAX_INSTANCES = 300
+    DETECTION_MAX_INSTANCES = 500
 
     LEARNING_RATE = 0.0005
 
@@ -123,18 +123,20 @@ class FiguresConfig(Config):
     # enough positive proposals to fill this and keep a positive:negative
     # ratio of 1:3. You can increase the number of proposals by adjusting
     # the RPN NMS threshold.
-    TRAIN_ROIS_PER_IMAGE = 256 # 512
+    TRAIN_ROIS_PER_IMAGE = 512 #256
 
-    RPN_TRAIN_ANCHORS_PER_IMAGE = 256 # 800
-    PRE_NMS_LIMIT = 6000 # 12000
-    POST_NMS_ROIS_TRAINING = 2000 # 6000
+    RPN_TRAIN_ANCHORS_PER_IMAGE = 512 #256
+    PRE_NMS_LIMIT = 12000 #6000
+    POST_NMS_ROIS_TRAINING = 6000 #2000
+
+    POST_NMS_ROIS_INFERENCE = 3000 #1000
 
     # If enabled, resizes instance masks to a smaller size to reduce
     # memory load. Recommended when using high-resolution images.
     USE_MINI_MASK = True
     MINI_MASK_SHAPE = (56, 56)
 
-    #MEAN_PIXEL = np.array([12.57, 12.57, 12.57])
+    MEAN_PIXEL = np.array([0., 0., 0.])
     ORIENTATION = False
 
 
@@ -542,7 +544,7 @@ if __name__ == '__main__':
             # Non-max suppression threshold to filter RPN proposals.
             # You can increase this during training to generate more proposals.
             RPN_NMS_THRESHOLD = 0.7
-            DETECTION_MIN_CONFIDENCE = 0.9
+            DETECTION_MIN_CONFIDENCE = 0.8
             NUM_CLASSES = 1 + 1
             POST_NMS_ROIS_INFERENCE = 3000
 
